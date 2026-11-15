@@ -149,6 +149,51 @@ object SafeRepairRegistry {
                 "Open Display Settings and manually set Screen timeout to 30 seconds."
             )
         ),
+        DoctorAction(
+            id = "auto_storage_housekeeping",
+            title = "🗂️ Safe Own-App Storage Housekeeping",
+            description = "Cleans temp/part downloads, repairs corrupt own thumbnails, deduplicates exports, and verifies clean disk state",
+            actionType = ActionType.RUN_OWN_STORAGE_HOUSEKEEPING,
+            level = RepairLevel.LEVEL_2,
+            riskLevel = "Safe",
+            isReversible = true,
+            whyRequired = "Removes orphaned .tmp/.part files and duplicate app exports without touching personal photos or other apps",
+            whatWillChange = "Deletes .tmp/.part artifacts and regenerates broken app thumbnails in app-owned storage",
+            capability = AutomationCapability.NORMAL_API,
+            riskClass = RiskClassification.SAFE_APP_LEVEL,
+            requiredPermission = "None (Own app sandbox)",
+            verificationMethod = "Verifies zero residual temp files, zero corrupt thumbnails, and zero duplicate exports"
+        ),
+        DoctorAction(
+            id = "auto_privacy_retention_cleanup",
+            title = "🔐 Purge Expired Diagnostic Artifacts",
+            description = "Enforces TTL retention expiry on diagnostic staging & temporary HTTP telemetry caches",
+            actionType = ActionType.RUN_PRIVACY_RETENTION_CLEANUP,
+            level = RepairLevel.LEVEL_2,
+            riskLevel = "Safe",
+            isReversible = true,
+            whyRequired = "Prevents temporary diagnostic staging files from lingering past retention window",
+            whatWillChange = "Purges expired files inside diagnostic_staging, temp_reports, and telemetry_tmp",
+            capability = AutomationCapability.NORMAL_API,
+            riskClass = RiskClassification.SAFE_APP_LEVEL,
+            requiredPermission = "None (Own app sandbox)",
+            verificationMethod = "Verifies 0 expired temporary diagnostic artifacts remain"
+        ),
+        DoctorAction(
+            id = "auto_schedule_maintenance",
+            title = "⏱️ Enable Battery-Safe Periodic Maintenance",
+            description = "Schedules constraint-aware WorkManager cleanup (battery-not-low, unique policy)",
+            actionType = ActionType.SCHEDULE_PERIODIC_MAINTENANCE,
+            level = RepairLevel.LEVEL_2,
+            riskLevel = "Safe",
+            isReversible = true,
+            whyRequired = "Prevents temporary cache & staging buildup automatically without battery drain",
+            whatWillChange = "Enqueues unique periodic WorkManager job (ExistingPeriodicWorkPolicy.KEEP)",
+            capability = AutomationCapability.NORMAL_API,
+            riskClass = RiskClassification.SAFE_APP_LEVEL,
+            requiredPermission = "None",
+            verificationMethod = "Verifies WorkInfo state is ENQUEUED or RUNNING"
+        ),
 
         // === LEVEL 1: HARDWARE DIAGNOSTIC TESTS ===
         DoctorAction(

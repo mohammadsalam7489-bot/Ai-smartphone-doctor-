@@ -104,8 +104,6 @@ object RepairVerificationEngine {
             action.actionType == ActionType.FIX_AUDIO_ROUTING_AND_VOLUME &&
                 after.audioVerified && before.audioVerified &&
                 after.mediaVolumePercent > before.mediaVolumePercent -> VerificationOutcome.VERIFIED_IMPROVED
-            action.actionType == ActionType.REFRESH_NETWORK_SOCKET && executionResult.isSuccess ->
-                VerificationOutcome.VERIFIED_IMPROVED
             storageDelta > 100 * 1024L || ramDelta > 10 * 1024 * 1024L ||
                 scoreDelta > 0 || (after.isPowerSaveMode && !before.isPowerSaveMode) ->
                 VerificationOutcome.VERIFIED_IMPROVED

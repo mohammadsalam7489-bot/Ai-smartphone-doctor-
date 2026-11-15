@@ -18,6 +18,7 @@ import com.example.data.model.DeviceVitals
 import com.example.data.model.DoctorAction
 import com.example.data.model.OemCompatibilityProfile
 import com.example.data.model.RepairPlan
+import com.example.data.privacy.PrivacyRedactor
 import com.example.data.repair.AutonomousRepairOrchestrator
 import com.example.data.repair.SafeRepairRegistry
 import com.example.util.AppCheckConfigStatus
@@ -234,12 +235,12 @@ class AiDoctorService(
         }
 
         val fullPrompt = buildPrompt(
-            userProblem = userProblem,
-            vitalsSummary = vitalsSummary,
+            userProblem = PrivacyRedactor.redactSensitiveData(userProblem),
+            vitalsSummary = PrivacyRedactor.redactSensitiveData(vitalsSummary),
             ragContext = ragContext,
             validActionCatalog = validActionCatalog,
             oemContext = oemContext,
-            conversationHistory = conversationHistory,
+            conversationHistory = conversationHistory.map { (r, m) -> r to PrivacyRedactor.redactSensitiveData(m) },
             effectiveLanguage = effectiveLanguage,
             hasScreenshot = screenshot != null,
             intent = intent,
@@ -665,14 +666,14 @@ ${if (hasScreenshot) "(User attached a device screenshot — analyze visible err
         }
 
         val payload = JSONObject().apply {
-            put("userProblem", userProblem)
-            put("vitalsSummary", vitalsSummary)
+            put("userProblem", PrivacyRedactor.redactSensitiveData(userProblem))
+            put("vitalsSummary", PrivacyRedactor.redactSensitiveData(vitalsSummary))
             put("ragContext", ragContext)
             put("validActionCatalog", validActionCatalog)
             put("oemContext", oemContext)
             put("history", historyArr)
             put("language", language)
-            put("rawPrompt", rawPrompt)
+            put("rawPrompt", PrivacyRedactor.redactSensitiveData(rawPrompt))
             if (screenshotBase64 != null) {
                 put("screenshotBase64", screenshotBase64)
             }

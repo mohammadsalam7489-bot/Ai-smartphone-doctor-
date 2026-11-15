@@ -73,8 +73,17 @@ object AutonomousRepairOrchestrator {
 
         if (isPerformanceOrStorage) {
             candidateIds.add("auto_clear_own_cache")
+            candidateIds.add("auto_storage_housekeeping")
             candidateIds.add("auto_optimize_memory")
             if (recommendedActions.none { it.id == "repair_app_cache" }) candidateIds.add("repair_app_cache")
+        }
+        val isMaintenanceOrPrivacy = combinedText.containsAny(
+            "temp loop", "housekeeping", "periodic", "schedule", "privacy", "redact", "quarantine", "adware", "malware"
+        )
+        if (isMaintenanceOrPrivacy) {
+            candidateIds.add("auto_storage_housekeeping")
+            candidateIds.add("auto_privacy_retention_cleanup")
+            candidateIds.add("auto_schedule_maintenance")
         }
         if (isBatteryOrThermal) {
             candidateIds.add("auto_audit_thermal_power")
@@ -197,7 +206,10 @@ object AutonomousRepairOrchestrator {
             ActionType.OPTIMIZE_APP_MEMORY_AND_STATE,
             ActionType.FIX_AUDIO_ROUTING_AND_VOLUME,
             ActionType.AUDIT_AUDIO_ROUTING_AND_VOLUME,
-            ActionType.AUDIT_THERMAL_AND_POWER_STATE -> ActionEligibility(
+            ActionType.AUDIT_THERMAL_AND_POWER_STATE,
+            ActionType.RUN_OWN_STORAGE_HOUSEKEEPING,
+            ActionType.RUN_PRIVACY_RETENTION_CLEANUP,
+            ActionType.SCHEDULE_PERIODIC_MAINTENANCE -> ActionEligibility(
                 actionId = action.id,
                 isRegistered = true,
                 isSupportedOnDevice = apiLevel >= action.minSdk,

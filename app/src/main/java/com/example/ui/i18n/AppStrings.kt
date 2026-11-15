@@ -216,7 +216,17 @@ data class LocalizedStrings(
     val listeningLabel: String,
     val tapToInterruptLabel: String,
     val voicePermissionNeeded: String,
-    val voiceEngineNote: String
+    val voiceEngineNote: String,
+    // Blueprint Storage Housekeeping & Play-Safe Security Scanner
+    val storageHousekeepingTitle: String,
+    val storageHousekeepingSubtitle: String,
+    val runHousekeepingBtn: String,
+    val scheduleMaintenanceBtn: String,
+    val securityScannerTitle: String,
+    val securityScannerSubtitle: String,
+    val scanSafFileBtn: String,
+    val urlInputPlaceholder: String,
+    val checkUrlBtn: String
 )
 
 object AppStrings {
@@ -425,7 +435,16 @@ object AppStrings {
         listeningLabel = "Listening...",
         tapToInterruptLabel = "Speaking • Tap microphone to interrupt",
         voicePermissionNeeded = "Microphone permission is needed for live voice conversation. Using system prompt fallback.",
-        voiceEngineNote = "Android Neural TTS"
+        voiceEngineNote = "Android Neural TTS",
+        storageHousekeepingTitle = "OWN-APP STORAGE & WORKER HYGIENE",
+        storageHousekeepingSubtitle = "Cleans temp/part files, repairs broken thumbnails, dedupes exports & schedules battery-safe WorkManager",
+        runHousekeepingBtn = "CLEAN OWN STORAGE",
+        scheduleMaintenanceBtn = "SCHEDULE WORKER",
+        securityScannerTitle = "PLAY-SAFE FILE & LINK SCANNER",
+        securityScannerSubtitle = "Inspect user-selected SAF files, double-extension APKs & IDN phishing URLs (never scans 3rd-party private data)",
+        scanSafFileBtn = "PICK & SCAN FILE",
+        urlInputPlaceholder = "Enter suspicious link (https://...)",
+        checkUrlBtn = "CHECK LINK"
     )
 
     val Hindi = LocalizedStrings(
@@ -633,7 +652,16 @@ object AppStrings {
         listeningLabel = "सुन रहा हूँ...",
         tapToInterruptLabel = "बोल रहा है • रोकने के लिए माइक दबाएं",
         voicePermissionNeeded = "लाइव आवाज़ से बात करने के लिए माइक्रोफ़ोन अनुमति चाहिए। सिस्टम वॉइस प्रॉम्प्ट उपयोग किया जा रहा है।",
-        voiceEngineNote = "एंड्रॉइड न्यूरल टीटीएस"
+        voiceEngineNote = "एंड्रॉइड न्यूरल टीटीएस",
+        storageHousekeepingTitle = "ऐप स्टोरेज सफ़ाई और मेंटेनेंस वर्कर",
+        storageHousekeepingSubtitle = "अस्थायी फ़ाइलें साफ़ करें, टूटे थंबनेल ठीक करें और बैटरी-सुरक्षित WorkManager शेड्यूल करें",
+        runHousekeepingBtn = "स्टोरेज साफ़ करें",
+        scheduleMaintenanceBtn = "मेंटेनेंस शेड्यूल",
+        securityScannerTitle = "सुरक्षित फ़ाइल और लिंक स्कैनर",
+        securityScannerSubtitle = "चुनी गई फ़ाइल, नकली एक्सटेंशन APK और फ़िशिंग लिंक की जाँच करें",
+        scanSafFileBtn = "फ़ाइल चुनें व स्कैन करें",
+        urlInputPlaceholder = "संदिग्ध लिंक लिखें (https://...)",
+        checkUrlBtn = "लिंक जांचें"
     )
 
     val Hinglish = English.copy(
@@ -684,7 +712,16 @@ object AppStrings {
         listeningLabel = "Sun raha hoon...",
         tapToInterruptLabel = "Bol raha hai • Interrupt karne ke liye mic dabayein",
         voicePermissionNeeded = "Live voice chat ke liye microphone permission zaroori hai. System voice prompt use ho raha hai.",
-        voiceEngineNote = "Android Neural TTS"
+        voiceEngineNote = "Android Neural TTS",
+        storageHousekeepingTitle = "OWN-APP STORAGE & WORKER HYGIENE",
+        storageHousekeepingSubtitle = "Temp/part files clean karein, broken thumbnails fix karein & WorkManager schedule karein",
+        runHousekeepingBtn = "CLEAN OWN STORAGE",
+        scheduleMaintenanceBtn = "SCHEDULE WORKER",
+        securityScannerTitle = "PLAY-SAFE FILE & LINK SCANNER",
+        securityScannerSubtitle = "User-selected SAF files, fake double-extension APK aur phishing URLs inspect karein",
+        scanSafFileBtn = "PICK & SCAN FILE",
+        urlInputPlaceholder = "Suspicious link daalein (https://...)",
+        checkUrlBtn = "CHECK LINK"
     )
 
     fun forLanguage(language: String): LocalizedStrings {

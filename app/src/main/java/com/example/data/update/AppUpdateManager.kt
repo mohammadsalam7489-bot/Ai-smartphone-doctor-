@@ -136,20 +136,32 @@ object AppUpdateManager {
         return remoteVersionCode > localVersionCode
     }
 
+    private fun isTrustedUpdateUrl(url: String): Boolean {
+        val trimmed = url.trim()
+        if (trimmed.any { it.isISOControl() || it.isWhitespace() }) return false
+        return trimmed.startsWith("https://", ignoreCase = true) ||
+            trimmed.startsWith("http://127.0.0.1", ignoreCase = true) ||
+            trimmed.startsWith("http://localhost", ignoreCase = true)
+    }
+
     internal fun parseUpdateManifest(jsonString: String): UpdateManifest? {
         return try {
             val obj = JSONObject(jsonString)
             val versionCode = obj.optLong("versionCode", -1L)
             val versionName = obj.optString("versionName").trim()
             val apkUrl = obj.optString("apkUrl").trim()
-            if (versionCode <= 0L || apkUrl.isBlank()) return null
+            val sha256 = obj.optString("sha256", "").trim().lowercase()
+            val fileSize = obj.optLong("fileSizeBytes", 0L)
+            if (versionCode <= 0L || apkUrl.isBlank() || fileSize < 0L) return null
+            if (!isTrustedUpdateUrl(apkUrl)) return null
+            if (sha256.isNotEmpty() && !sha256.matches(Regex("^[0-9a-f]{6,128}$"))) return null
 
             UpdateManifest(
                 versionCode = versionCode,
                 versionName = versionName.ifBlank { versionCode.toString() },
                 apkUrl = apkUrl,
-                sha256 = obj.optString("sha256", "").trim().lowercase(),
-                fileSizeBytes = obj.optLong("fileSizeBytes", 0L),
+                sha256 = sha256,
+                fileSizeBytes = fileSize,
                 releaseNotes = obj.optString("releaseNotes", "Bug fixes, stability improvements, and diagnostic updates.").trim(),
                 releaseNotesHi = obj.optString("releaseNotesHi", "बग सुधार, बेहतर प्रदर्शन और नए निदान अपडेट।").trim(),
                 publishedAt = obj.optString("publishedAt", "").trim(),
@@ -344,15 +356,21 @@ object AppUpdateManager {
                     return@withContext ApkDownloadResult.Failure("APK integrity verification (SHA-256) failed. Download aborted.")
                 }
 
-                // Verify APK package archive matches this app's applicationId so user never overwrites wrong app
+                // Verify APK package archive matches this app's applicationId and signer so user never installs tampered APK
+                val pkgFlags = PackageManager.GET_PERMISSIONS or if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    PackageManager.GET_SIGNING_CERTIFICATES
+                } else {
+                    @Suppress("DEPRECATION")
+                    PackageManager.GET_SIGNATURES
+                }
                 val archiveInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     context.packageManager.getPackageArchiveInfo(
                         tempApk.absolutePath,
-                        PackageManager.PackageInfoFlags.of(0)
+                        PackageManager.PackageInfoFlags.of(pkgFlags.toLong())
                     )
                 } else {
                     @Suppress("DEPRECATION")
-                    context.packageManager.getPackageArchiveInfo(tempApk.absolutePath, 0)
+                    context.packageManager.getPackageArchiveInfo(tempApk.absolutePath, pkgFlags)
                 }
 
                 if (archiveInfo != null && archiveInfo.packageName != context.packageName) {
@@ -360,6 +378,24 @@ object AppUpdateManager {
                     return@withContext ApkDownloadResult.Failure(
                         "Package ID mismatch (${archiveInfo.packageName}). Update blocked for safety."
                     )
+                }
+
+                val installedSigner = com.example.data.security.AppSecurityScanner.getCurrentAppSigningCertSha256(context)
+                if (installedSigner != null && archiveInfo != null) {
+                    val scan = com.example.data.security.AppSecurityScanner.scanFileSafely(
+                        context = context,
+                        file = tempApk,
+                        originalFileName = targetApk.name,
+                        expectedSignerSha256 = installedSigner
+                    )
+                    if (scan.verdict == com.example.data.security.ScanVerdict.INVALID_APK_SIGNER ||
+                        scan.verdict == com.example.data.security.ScanVerdict.MALWARE_HASH_MATCH
+                    ) {
+                        runCatching { tempApk.delete() }
+                        return@withContext ApkDownloadResult.Failure(
+                            "APK signature/security verification failed (${scan.verdict.label}). Update blocked."
+                        )
+                    }
                 }
 
                 if (targetApk.exists()) targetApk.delete()
@@ -373,6 +409,19 @@ object AppUpdateManager {
         } catch (t: Throwable) {
             ApkDownloadResult.Failure(t.localizedMessage ?: "APK download failed")
         }
+    }
+
+    internal fun verifyApkSignerMatchesExpected(
+        context: Context,
+        apkFile: File,
+        expectedSignerSha256: String
+    ): com.example.data.security.FileSecurityReport {
+        return com.example.data.security.AppSecurityScanner.scanFileSafely(
+            context = context,
+            file = apkFile,
+            originalFileName = apkFile.name,
+            expectedSignerSha256 = expectedSignerSha256
+        )
     }
 
     fun canRequestPackageInstalls(context: Context): Boolean {

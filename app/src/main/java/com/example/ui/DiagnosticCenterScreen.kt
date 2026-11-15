@@ -97,21 +97,36 @@ import com.example.ui.theme.CyberTextMuted
 import com.example.ui.theme.CyberTextPrimary
 import com.example.ui.theme.CyberTextSecondary
 
+import android.net.Uri
+import android.provider.OpenableColumns
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.example.BuildConfig
+import com.example.data.maintenance.MaintenanceScheduleStatus
 import com.example.data.model.CapabilityMatrixEntry
 import com.example.data.model.CapabilityTierCategory
 import com.example.data.repair.SafeRepairRegistry
+import com.example.data.security.FileSecurityReport
+import com.example.data.security.ScanVerdict
+import com.example.data.security.UrlSafetyReport
+import com.example.data.storage.AppStorageBreakdown
+import com.example.data.storage.HousekeepingResult
 import com.example.data.update.UpdateState
 import com.example.ui.components.AutoFixDialog
 import com.example.ui.components.LanguageToggleSwitch
@@ -132,12 +147,30 @@ fun DiagnosticCenterScreen(
     val currentLanguage by viewModel.currentLanguage.collectAsStateWithLifecycle()
     val updateState by viewModel.updateState.collectAsStateWithLifecycle()
     val capabilityMatrix by viewModel.capabilityMatrix.collectAsStateWithLifecycle()
+    val storageBreakdown by viewModel.storageBreakdown.collectAsStateWithLifecycle()
+    val maintenanceStatus by viewModel.maintenanceStatus.collectAsStateWithLifecycle()
+    val lastHousekeepingResult by viewModel.lastHousekeepingResult.collectAsStateWithLifecycle()
+    val lastSecurityScanReport by viewModel.lastSecurityScanReport.collectAsStateWithLifecycle()
+    val lastUrlCheckReport by viewModel.lastUrlCheckReport.collectAsStateWithLifecycle()
     val strings = AppStrings.forLanguage(currentLanguage)
     val isHindi = currentLanguage.equals("Hindi", ignoreCase = true)
     var matrixExpanded by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
     val oemProfile = DeviceCompatibilityEngine.getProfile(context)
+    val safScanLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            val resolvedName = runCatching {
+                context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+                    ?.use { cursor ->
+                        if (cursor.moveToFirst()) cursor.getString(0) else null
+                    }
+            }.getOrNull() ?: "selected_file"
+            viewModel.scanUserSelectedFile(context, uri, resolvedName)
+        }
+    }
 
     if (showAutoFixDialog) {
         AutoFixDialog(
@@ -256,6 +289,29 @@ fun DiagnosticCenterScreen(
                     strings = strings,
                     onCheckUpdates = { viewModel.checkForUpdates(silent = false) },
                     onOpenUpdateDialog = { viewModel.openUpdateDialog() }
+                )
+            }
+
+            // Own-App Storage Housekeeping & WorkManager Maintenance Card
+            item {
+                OwnAppStorageMaintenanceCard(
+                    breakdown = storageBreakdown,
+                    maintenanceStatus = maintenanceStatus,
+                    lastResult = lastHousekeepingResult,
+                    strings = strings,
+                    onRunHousekeeping = { viewModel.runOwnStorageHousekeeping() },
+                    onScheduleMaintenance = { viewModel.scheduleMaintenanceWork() }
+                )
+            }
+
+            // Play-Safe File / APK & Link Security Scanner Card (Zero broad storage perms)
+            item {
+                PlaySafeSecurityScannerCard(
+                    scanReport = lastSecurityScanReport,
+                    urlReport = lastUrlCheckReport,
+                    strings = strings,
+                    onPickSafFile = { safScanLauncher.launch(arrayOf("*/*")) },
+                    onCheckUrl = { url -> viewModel.checkUrlSafety(url) }
                 )
             }
 
@@ -1420,6 +1476,261 @@ fun CapabilityMatrixTierSection(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun OwnAppStorageMaintenanceCard(
+    breakdown: AppStorageBreakdown?,
+    maintenanceStatus: MaintenanceScheduleStatus?,
+    lastResult: HousekeepingResult?,
+    strings: LocalizedStrings,
+    onRunHousekeeping: () -> Unit,
+    onScheduleMaintenance: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = CyberCard,
+        border = androidx.compose.foundation.BorderStroke(1.dp, CyberCardBorder),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("app_storage_housekeeping_card")
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.CleaningServices,
+                    contentDescription = strings.storageHousekeepingTitle,
+                    tint = CyberCyan,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = strings.storageHousekeepingTitle,
+                    color = CyberCyan,
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = strings.storageHousekeepingSubtitle,
+                color = CyberTextSecondary,
+                fontSize = 10.5.sp,
+                lineHeight = 14.sp
+            )
+            if (breakdown != null) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = breakdown.formatSummaryLine(),
+                    color = CyberTextMuted,
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+            if (maintenanceStatus != null) {
+                Text(
+                    text = "WorkManager: ${maintenanceStatus.workStateName} (${maintenanceStatus.activeConstraintsSummary})",
+                    color = if (maintenanceStatus.isScheduled) CyberGreen else CyberTextMuted,
+                    fontSize = 9.5.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+            if (lastResult != null) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = lastResult.summary,
+                    color = if (lastResult.verifiedClean) CyberGreen else CyberAmber,
+                    fontSize = 10.sp
+                )
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    onClick = onRunHousekeeping,
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = CyberCyan, contentColor = Color(0xFF001B2E)),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .minimumInteractiveComponentSize()
+                        .testTag("run_housekeeping_btn")
+                ) {
+                    Text(
+                        text = strings.runHousekeepingBtn,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+                OutlinedButton(
+                    onClick = onScheduleMaintenance,
+                    shape = RoundedCornerShape(8.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, CyberCyan.copy(alpha = 0.6f)),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .minimumInteractiveComponentSize()
+                        .testTag("schedule_maintenance_btn")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Schedule,
+                        contentDescription = null,
+                        tint = CyberCyan,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = strings.scheduleMaintenanceBtn,
+                        color = CyberCyan,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun PlaySafeSecurityScannerCard(
+    scanReport: FileSecurityReport?,
+    urlReport: UrlSafetyReport?,
+    strings: LocalizedStrings,
+    onPickSafFile: () -> Unit,
+    onCheckUrl: (String) -> Unit
+) {
+    var urlText by remember { mutableStateOf("") }
+
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = CyberCard,
+        border = androidx.compose.foundation.BorderStroke(1.dp, CyberPurple.copy(alpha = 0.55f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("security_scanner_card")
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Shield,
+                    contentDescription = strings.securityScannerTitle,
+                    tint = CyberPurple,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = strings.securityScannerTitle,
+                    color = CyberPurple,
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = strings.securityScannerSubtitle,
+                color = CyberTextSecondary,
+                fontSize = 10.5.sp,
+                lineHeight = 14.sp
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            OutlinedButton(
+                onClick = onPickSafFile,
+                shape = RoundedCornerShape(8.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, CyberPurple.copy(alpha = 0.7f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .minimumInteractiveComponentSize()
+                    .testTag("scan_saf_file_btn")
+            ) {
+                Text(
+                    text = strings.scanSafFileBtn,
+                    color = CyberPurple,
+                    fontSize = 10.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+
+            if (scanReport != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                val verdictColor = when (scanReport.verdict) {
+                    ScanVerdict.VERIFIED_CLEAN -> CyberGreen
+                    ScanVerdict.SUSPICIOUS_UNKNOWN -> CyberAmber
+                    else -> CyberRed
+                }
+                Text(
+                    text = "${scanReport.fileName}: ${scanReport.verdict.label} (${scanReport.trueMimeType})",
+                    color = verdictColor,
+                    fontSize = 10.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace
+                )
+                scanReport.findings.take(2).forEach { f ->
+                    Text(text = "• $f", color = CyberTextSecondary, fontSize = 10.sp)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedTextField(
+                    value = urlText,
+                    onValueChange = { urlText = it },
+                    placeholder = { Text(strings.urlInputPlaceholder, fontSize = 11.sp, color = CyberTextMuted) },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = CyberCyan,
+                        unfocusedBorderColor = CyberCardBorder,
+                        focusedTextColor = CyberTextPrimary,
+                        unfocusedTextColor = CyberTextPrimary
+                    ),
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("url_safety_input")
+                )
+                Button(
+                    onClick = { onCheckUrl(urlText) },
+                    enabled = urlText.isNotBlank(),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = CyberPurple, contentColor = Color.White),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .testTag("check_url_safety_btn")
+                ) {
+                    Text(
+                        text = strings.checkUrlBtn,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+            }
+
+            if (urlReport != null) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = if (urlReport.isSuspicious) {
+                        "⚠ ${urlReport.normalizedHost}: ${urlReport.reasons.joinToString("; ")}"
+                    } else {
+                        "✓ Normalized host '${urlReport.normalizedHost}': HTTPS protocol clean"
+                    },
+                    color = if (urlReport.isSuspicious) CyberAmber else CyberGreen,
+                    fontSize = 10.sp
+                )
             }
         }
     }

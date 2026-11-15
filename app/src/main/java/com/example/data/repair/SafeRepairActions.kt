@@ -69,6 +69,9 @@ object SafeRepairActions {
             ActionType.AUDIT_THERMAL_AND_POWER_STATE -> executeThermalPowerAudit(context)
             ActionType.OPTIMIZE_DISPLAY_POWER_SAFE -> executeOptimizeDisplayPower(context, canWriteOverride)
             ActionType.OPTIMIZE_SCREEN_TIMEOUT_SAFE -> executeSafeScreenTimeout(context, canWriteOverride)
+            ActionType.RUN_OWN_STORAGE_HOUSEKEEPING -> executeOwnStorageHousekeeping(context)
+            ActionType.RUN_PRIVACY_RETENTION_CLEANUP -> executePrivacyRetentionCleanup(context)
+            ActionType.SCHEDULE_PERIODIC_MAINTENANCE -> executeScheduleMaintenance(context)
             ActionType.RUN_AUDIO_TEST,
             ActionType.RUN_VIBRATION_TEST,
             ActionType.RUN_SCREEN_TEST,
@@ -103,6 +106,9 @@ object SafeRepairActions {
             ActionType.AUDIT_THERMAL_AND_POWER_STATE -> executeThermalPowerAudit(context)
             ActionType.OPTIMIZE_DISPLAY_POWER_SAFE -> executeOptimizeDisplayPower(context)
             ActionType.OPTIMIZE_SCREEN_TIMEOUT_SAFE -> executeSafeScreenTimeout(context)
+            ActionType.RUN_OWN_STORAGE_HOUSEKEEPING -> executeOwnStorageHousekeeping(context)
+            ActionType.RUN_PRIVACY_RETENTION_CLEANUP -> executePrivacyRetentionCleanup(context)
+            ActionType.SCHEDULE_PERIODIC_MAINTENANCE -> executeScheduleMaintenance(context)
             ActionType.RUN_AUDIO_TEST,
             ActionType.RUN_VIBRATION_TEST,
             ActionType.RUN_SCREEN_TEST,
@@ -284,23 +290,37 @@ object SafeRepairActions {
         var volumeChanged = false
         var policyBlockNote: String? = null
 
-        if (modeBefore == AudioManager.MODE_IN_COMMUNICATION || speakerBefore) {
-            runCatching {
-                audioManager.mode = AudioManager.MODE_NORMAL
-                @Suppress("DEPRECATION")
-                audioManager.isSpeakerphoneOn = false
-            }.onFailure {
-                policyBlockNote = "Audio routing reset blocked by OS policy: ${it.localizedMessage}"
+        try {
+            if (modeBefore == AudioManager.MODE_IN_COMMUNICATION || speakerBefore) {
+                runCatching {
+                    audioManager.mode = AudioManager.MODE_NORMAL
+                    @Suppress("DEPRECATION")
+                    audioManager.isSpeakerphoneOn = false
+                }.onFailure {
+                    policyBlockNote = "Audio routing reset blocked by OS policy: ${it.localizedMessage}"
+                }
             }
-        }
 
-        if (mediaPctBefore < 35) {
-            val targetVol = max(1, (mediaMax * 0.45f).roundToInt()).coerceAtMost(mediaMax)
-            runCatching {
-                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, targetVol, 0)
-            }.onFailure {
-                policyBlockNote = "Volume adjustment blocked by OS/DND policy: ${it.localizedMessage}"
+            if (mediaPctBefore < 35) {
+                val targetVol = max(1, (mediaMax * 0.45f).roundToInt()).coerceAtMost(mediaMax)
+                runCatching {
+                    audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, targetVol, 0)
+                }.onFailure {
+                    policyBlockNote = "Volume adjustment blocked by OS/DND policy: ${it.localizedMessage}"
+                }
             }
+        } catch (t: Throwable) {
+            runCatching {
+                audioManager.mode = modeBefore
+                @Suppress("DEPRECATION")
+                audioManager.isSpeakerphoneOn = speakerBefore
+                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, mediaCurBefore, 0)
+            }
+            return ActionResult(
+                isSuccess = false,
+                message = "Audio repair aborted and previous audio state restored: ${t.localizedMessage}",
+                requiresUserConfirmationToVerify = false
+            )
         }
 
         val mediaCurAfter = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
@@ -496,6 +516,63 @@ object SafeRepairActions {
         } catch (e: Exception) {
             ActionResult(false, "Could not update screen timeout: ${e.localizedMessage}")
         }
+    }
+
+    private fun executeOwnStorageHousekeeping(context: Context): ActionResult {
+        val report = com.example.data.storage.SafeStorageManager.runFullOwnAppHousekeeping(context)
+        return ActionResult(
+            isSuccess = report.success && report.verifiedClean,
+            message = report.summary,
+            executedAutomatically = true,
+            requiresUserConfirmationToVerify = !report.verifiedClean,
+            measuredDetails = listOf(
+                "Before reclaimable: ${RealDeviceDiagnostics.formatBytes(report.breakdownBefore.reclaimableBytes)}",
+                "After reclaimable: ${RealDeviceDiagnostics.formatBytes(report.breakdownAfter.reclaimableBytes)}",
+                "Temp removed=${report.tempFilesRemoved}, Thumbs repaired=${report.thumbnailsRepaired}, Duplicates removed=${report.duplicatesRemoved}",
+                "Verified clean=${report.verifiedClean}"
+            ),
+            verifiedMetricImproved = report.verifiedClean && (report.bytesFreed > 0L || report.tempFilesRemoved > 0 || report.thumbnailsRepaired > 0 || report.duplicatesRemoved > 0)
+        )
+    }
+
+    private fun executePrivacyRetentionCleanup(context: Context): ActionResult {
+        val report = com.example.data.privacy.PrivacyRedactor.purgeExpiredDiagnosticArtifacts(context)
+        return ActionResult(
+            isSuccess = report.verifiedClean,
+            message = if (report.verifiedClean) {
+                "Purged ${report.purgedFilesCount} expired artifact(s) (${RealDeviceDiagnostics.formatBytes(report.freedBytes)}); 0 expired files remain."
+            } else {
+                "Ran retention purge but ${report.remainingExpiredCount} artifact(s) could not be removed."
+            },
+            executedAutomatically = true,
+            requiresUserConfirmationToVerify = !report.verifiedClean,
+            measuredDetails = listOf(
+                "Purged=${report.purgedFilesCount}",
+                "Freed=${RealDeviceDiagnostics.formatBytes(report.freedBytes)}",
+                "Remaining=${report.remainingExpiredCount}"
+            ),
+            verifiedMetricImproved = report.verifiedClean && report.purgedFilesCount > 0
+        )
+    }
+
+    private fun executeScheduleMaintenance(context: Context): ActionResult {
+        val ok = com.example.data.maintenance.MaintenanceWorkScheduler.schedulePeriodicMaintenance(context)
+        val status = com.example.data.maintenance.MaintenanceWorkScheduler.inspectStatus(context)
+        return ActionResult(
+            isSuccess = ok && status.isScheduled,
+            message = if (ok && status.isScheduled) {
+                "Scheduled battery-safe WorkManager maintenance (${status.workStateName})."
+            } else {
+                "Could not confirm WorkManager periodic maintenance status."
+            },
+            executedAutomatically = ok,
+            requiresUserConfirmationToVerify = !(ok && status.isScheduled),
+            measuredDetails = listOf(
+                "Work State=${status.workStateName}",
+                "Constraints=${status.activeConstraintsSummary}"
+            ),
+            verifiedMetricImproved = ok && status.isScheduled
+        )
     }
 
     private fun openWriteSettingsPermissionPrompt(context: Context, launchedMsg: String): ActionResult {

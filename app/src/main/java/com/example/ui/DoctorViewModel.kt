@@ -25,6 +25,8 @@ import com.example.data.knowledge.KnowledgeUpdateManager
 import com.example.data.knowledge.PlaybookRagRetriever
 import com.example.data.local.AppDatabase
 import com.example.data.local.DiagnosticRepository
+import com.example.data.maintenance.MaintenanceScheduleStatus
+import com.example.data.maintenance.MaintenanceWorkScheduler
 import com.example.data.model.ActionType
 import com.example.data.model.AiServiceStatus
 import com.example.data.model.AutonomousRepairBundle
@@ -39,14 +41,24 @@ import com.example.data.model.DoctorAction
 import com.example.data.model.RepairLevel
 import com.example.data.model.SenderType
 import com.example.data.model.VerificationOutcome
+import com.example.data.privacy.PrivacyRedactor
 import com.example.data.repair.ActionResult
 import com.example.data.repair.AutoFixEngine
 import com.example.data.repair.AutoFixReport
 import com.example.data.repair.AutonomousRepairOrchestrator
 import com.example.data.repair.CapabilityEvaluator
 import com.example.data.repair.CapabilityMatrix
+import com.example.data.repair.PipelineExecutionParams
+import com.example.data.repair.RepairPipelineEngine
+import com.example.data.repair.RepairPipelineReport
 import com.example.data.repair.RepairVerificationEngine
 import com.example.data.repair.SafeRepairActions
+import com.example.data.security.AppSecurityScanner
+import com.example.data.security.FileSecurityReport
+import com.example.data.security.UrlSafetyReport
+import com.example.data.storage.AppStorageBreakdown
+import com.example.data.storage.HousekeepingResult
+import com.example.data.storage.SafeStorageManager
 import com.example.data.update.ApkDownloadResult
 import com.example.data.update.AppUpdateManager
 import com.example.data.update.UpdateCheckResult
@@ -212,6 +224,25 @@ class DoctorViewModel(application: Application) : AndroidViewModel(application) 
 
     private val _lastImportResult = MutableStateFlow<KnowledgeImportResult?>(null)
     val lastImportResult: StateFlow<KnowledgeImportResult?> = _lastImportResult.asStateFlow()
+
+    // Blueprint modules: Own-app Storage Housekeeping, Maintenance Worker, Security Scanner & 8-Stage Pipeline
+    private val _storageBreakdown = MutableStateFlow<AppStorageBreakdown?>(null)
+    val storageBreakdown: StateFlow<AppStorageBreakdown?> = _storageBreakdown.asStateFlow()
+
+    private val _maintenanceStatus = MutableStateFlow<MaintenanceScheduleStatus?>(null)
+    val maintenanceStatus: StateFlow<MaintenanceScheduleStatus?> = _maintenanceStatus.asStateFlow()
+
+    private val _lastHousekeepingResult = MutableStateFlow<HousekeepingResult?>(null)
+    val lastHousekeepingResult: StateFlow<HousekeepingResult?> = _lastHousekeepingResult.asStateFlow()
+
+    private val _lastSecurityScanReport = MutableStateFlow<FileSecurityReport?>(null)
+    val lastSecurityScanReport: StateFlow<FileSecurityReport?> = _lastSecurityScanReport.asStateFlow()
+
+    private val _lastUrlCheckReport = MutableStateFlow<UrlSafetyReport?>(null)
+    val lastUrlCheckReport: StateFlow<UrlSafetyReport?> = _lastUrlCheckReport.asStateFlow()
+
+    private val _lastPipelineReport = MutableStateFlow<RepairPipelineReport?>(null)
+    val lastPipelineReport: StateFlow<RepairPipelineReport?> = _lastPipelineReport.asStateFlow()
 
     // Track active playbook / KB issue ID and tried action IDs for intelligent escalation
     private var lastMatchedPlaybookId: String? = _sessionContext.value.activeProblemId
@@ -501,7 +532,96 @@ class DoctorViewModel(application: Application) : AndroidViewModel(application) 
             val currentVitals = RealDeviceDiagnostics.getDeviceVitals(app)
             _vitals.value = currentVitals
             _capabilityMatrix.value = CapabilityMatrix.buildLiveMatrix(app, currentVitals)
+            _storageBreakdown.value = runCatching { SafeStorageManager.inspectOwnAppStorageBreakdown(app) }.getOrNull()
+            _maintenanceStatus.value = runCatching { MaintenanceWorkScheduler.inspectStatus(app) }.getOrNull()
         }
+    }
+
+    fun runOwnStorageHousekeeping() {
+        val app = getApplication<Application>()
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                SafeStorageManager.runFullOwnAppHousekeeping(app)
+            }
+            _lastHousekeepingResult.value = result
+            _storageBreakdown.value = result.breakdownAfter
+            _actionFeedback.value = result.summary
+            runCatching {
+                repository.saveHistoryItem(
+                    DiagnosticHistoryItem(
+                        id = UUID.randomUUID().toString(),
+                        timestamp = System.currentTimeMillis(),
+                        problemTitle = "Own-App Storage Housekeeping",
+                        category = "STORAGE HYGIENE",
+                        diagnosisSummary = PrivacyRedactor.redactSensitiveData(result.summary),
+                        actionExecuted = "SafeStorageManager.runFullOwnAppHousekeeping",
+                        verificationStatus = if (result.verifiedClean) "Verified Fixed" else "Unresolved",
+                        capabilityUsed = "OWN_APP",
+                        beforeSnapshot = result.breakdownBefore.formatSummaryLine(),
+                        afterSnapshot = result.breakdownAfter.formatSummaryLine(),
+                        aiModeUsed = _aiServiceStatus.value.badgeText
+                    )
+                )
+            }
+        }
+    }
+
+    fun scheduleMaintenanceWork() {
+        val app = getApplication<Application>()
+        viewModelScope.launch {
+            val scheduled = withContext(Dispatchers.IO) {
+                MaintenanceWorkScheduler.schedulePeriodicMaintenance(app)
+            }
+            val status = withContext(Dispatchers.IO) {
+                runCatching { MaintenanceWorkScheduler.inspectStatus(app) }.getOrNull()
+            }
+            _maintenanceStatus.value = status
+            _actionFeedback.value = if (scheduled) {
+                "Scheduled battery-safe WorkManager maintenance (${status?.workStateName ?: "ENQUEUED"})."
+            } else {
+                "Could not schedule WorkManager periodic task."
+            }
+        }
+    }
+
+    fun scanUserSelectedFile(context: Context, uri: Uri, displayNameHint: String = "selected_file") {
+        viewModelScope.launch {
+            val res = withContext(Dispatchers.IO) {
+                AppSecurityScanner.scanUserSelectedUri(context, uri, displayNameHint)
+            }
+            res.onSuccess { report ->
+                _lastSecurityScanReport.value = report
+                _actionFeedback.value = "Scan verdict: ${report.verdict.label} (${report.trueMimeType})"
+            }.onFailure { err ->
+                _actionFeedback.value = err.localizedMessage ?: "Selected file could not be scanned."
+            }
+        }
+    }
+
+    fun checkUrlSafety(rawUrl: String) {
+        if (rawUrl.isBlank()) return
+        val report = AppSecurityScanner.inspectUrlSafety(rawUrl)
+        _lastUrlCheckReport.value = report
+        _actionFeedback.value = if (report.isSuspicious) {
+            "Suspicious link indicators: ${report.reasons.joinToString()}"
+        } else {
+            "URL host verified normalized (${report.normalizedHost})."
+        }
+    }
+
+    fun runBlueprintPipeline(queryOrIssueId: String, consentConfirmed: Boolean = false): RepairPipelineReport? {
+        val app = getApplication<Application>()
+        val report = RepairPipelineEngine.executePipeline(
+            context = app,
+            queryOrIssueId = queryOrIssueId,
+            params = PipelineExecutionParams(
+                consentConfirmed = consentConfirmed,
+                language = _currentLanguage.value
+            )
+        )
+        _lastPipelineReport.value = report
+        refreshVitals()
+        return report
     }
 
     fun startAutoFixScanAndRepair() {
