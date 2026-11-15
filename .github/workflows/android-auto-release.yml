@@ -1,0 +1,182 @@
+name: Android Auto Build, Release & Distribute APK
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+  workflow_dispatch:
+    inputs:
+      release_notes:
+        description: 'Release notes (English)'
+        required: false
+        default: 'Automatic build with latest diagnostics, localization & stability updates.'
+      release_notes_hi:
+        description: 'Release notes (Hindi Devanagari)'
+        required: false
+        default: 'नवीनतम निदान, भाषा सुधार और स्थिरता अपडेट के साथ स्वचालित बिल्ड।'
+
+permissions:
+  contents: write
+
+jobs:
+  build_test_and_publish:
+    name: Build, Verify & Publish Signed APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Compute Monotonic Version Code & Name
+        id: version
+        run: |
+          BASE_CODE=100
+          RUN_NUM=${{ github.run_number }}
+          VERSION_CODE=$((BASE_CODE + RUN_NUM))
+          VERSION_NAME="1.1.${RUN_NUM}"
+          echo "VERSION_CODE=${VERSION_CODE}" >> "$GITHUB_OUTPUT"
+          echo "VERSION_NAME=${VERSION_NAME}" >> "$GITHUB_OUTPUT"
+          echo "Computed Version: v${VERSION_NAME} (versionCode=${VERSION_CODE})"
+
+      - name: Prepare CI Signing & Non-Secret Config
+        run: |
+          # SECURITY: Never bake GEMINI_API_KEY into the APK.
+          # Cloud AI uses Firebase AI Logic + App Check or server-side backend/ proxy.
+          if [ -n "${{ secrets.GOOGLE_SERVICES_JSON }}" ]; then
+            echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > app/google-services.json
+          fi
+
+          if [ -n "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" ] && [ -n "${{ secrets.STORE_PASSWORD }}" ] && [ -n "${{ secrets.KEY_PASSWORD }}" ]; then
+            echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 --decode > my-upload-key.jks
+            echo "SIGN_MODE=release" >> "$GITHUB_ENV"
+            echo "KEYSTORE_PATH=${{ github.workspace }}/my-upload-key.jks" >> "$GITHUB_ENV"
+          elif [ -n "${{ secrets.DEBUG_KEYSTORE_BASE64 }}" ]; then
+            echo "${{ secrets.DEBUG_KEYSTORE_BASE64 }}" | base64 --decode > debug.keystore
+            echo "SIGN_MODE=debug" >> "$GITHUB_ENV"
+          else
+            echo "::warning::No RELEASE_KEYSTORE_BASE64 or DEBUG_KEYSTORE_BASE64 secret found. Generating ephemeral debug.keystore (in-place upgrades require a persistent keystore secret)."
+            keytool -genkeypair -v \
+              -keystore debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+            echo "SIGN_MODE=debug" >> "$GITHUB_ENV"
+          fi
+
+      - name: Setup Gradle 9.3.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Run Unit & Robolectric Tests
+        run: |
+          gradle :app:testDebugUnitTest \
+            -PappVersionCode=${{ steps.version.outputs.VERSION_CODE }} \
+            -PappVersionName=${{ steps.version.outputs.VERSION_NAME }}
+
+      - name: Build Signed APK
+        id: build_apk
+        env:
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          AI_PROXY_URL: ${{ vars.AI_PROXY_URL }}
+        run: |
+          if [ "$SIGN_MODE" = "release" ]; then
+            gradle :app:assembleRelease \
+              -PappVersionCode=${{ steps.version.outputs.VERSION_CODE }} \
+              -PappVersionName=${{ steps.version.outputs.VERSION_NAME }} \
+              -PAI_PROXY_URL="${AI_PROXY_URL}"
+            SOURCE_APK="app/build/outputs/apk/release/app-release.apk"
+          else
+            gradle :app:assembleDebug \
+              -PappVersionCode=${{ steps.version.outputs.VERSION_CODE }} \
+              -PappVersionName=${{ steps.version.outputs.VERSION_NAME }} \
+              -PAI_PROXY_URL="${AI_PROXY_URL}"
+            SOURCE_APK="app/build/outputs/apk/debug/app-debug.apk"
+          fi
+
+          if [ ! -f "$SOURCE_APK" ]; then
+            echo "ERROR: Built APK not found at $SOURCE_APK"
+            exit 1
+          fi
+
+          mkdir -p dist
+          cp "$SOURCE_APK" dist/Ai-Smartphone-Doctor.apk
+          SHA256=$(sha256sum dist/Ai-Smartphone-Doctor.apk | awk '{print $1}')
+          SIZE_BYTES=$(stat -c%s dist/Ai-Smartphone-Doctor.apk)
+          echo "APK_PATH=dist/Ai-Smartphone-Doctor.apk" >> "$GITHUB_OUTPUT"
+          echo "APK_SHA256=${SHA256}" >> "$GITHUB_OUTPUT"
+          echo "APK_SIZE=${SIZE_BYTES}" >> "$GITHUB_OUTPUT"
+          echo "Built dist/Ai-Smartphone-Doctor.apk (${SIZE_BYTES} bytes, sha256=${SHA256})"
+
+      - name: Generate Update Manifest JSON
+        run: |
+          TAG_NAME="v${{ steps.version.outputs.VERSION_NAME }}"
+          APK_URL="https://github.com/${{ github.repository }}/releases/download/${TAG_NAME}/Ai-Smartphone-Doctor.apk"
+          PUBLISHED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          NOTES_EN="${{ github.event.inputs.release_notes || 'Automatic CI release with latest diagnostics, pure Devanagari Hindi & English localization, and stability fixes.' }}"
+          NOTES_HI="${{ github.event.inputs.release_notes_hi || 'नवीनतम निदान, शुद्ध देवनागरी हिंदी व अंग्रेजी भाषा और स्थिरता सुधार के साथ स्वचालित रिलीज़।' }}"
+
+          python3 - <<'PY'
+          import json, os
+          manifest = {
+              "versionCode": int("${{ steps.version.outputs.VERSION_CODE }}"),
+              "versionName": "${{ steps.version.outputs.VERSION_NAME }}",
+              "apkUrl": f"https://github.com/${{ github.repository }}/releases/download/v${{ steps.version.outputs.VERSION_NAME }}/Ai-Smartphone-Doctor.apk",
+              "sha256": "${{ steps.build_apk.outputs.APK_SHA256 }}",
+              "fileSizeBytes": int("${{ steps.build_apk.outputs.APK_SIZE }}"),
+              "releaseNotes": """${{ github.event.inputs.release_notes || 'Automatic release from main branch with latest AI Doctor diagnostics & fixes.' }}""",
+              "releaseNotesHi": """${{ github.event.inputs.release_notes_hi || 'मुख्य शाखा से नवीनतम एआई डॉक्टर निदान और सुधारों के साथ स्वचालित रिलीज़।' }}""",
+              "publishedAt": os.popen('date -u +"%Y-%m-%dT%H:%M:%SZ"').read().strip(),
+              "mandatory": False
+          }
+          with open("dist/update-manifest.json", "w", encoding="utf-8") as f:
+              json.dump(manifest, f, ensure_ascii=False, indent=2)
+          PY
+          cat dist/update-manifest.json
+
+      - name: Publish Versioned GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.VERSION_NAME }}
+          name: AI Smartphone Doctor v${{ steps.version.outputs.VERSION_NAME }}
+          generate_release_notes: true
+          files: |
+            dist/Ai-Smartphone-Doctor.apk
+            dist/update-manifest.json
+
+      - name: Update Rolling 'latest' Update Channel Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest Automatic Update Channel
+          prerelease: false
+          make_latest: true
+          files: |
+            dist/Ai-Smartphone-Doctor.apk
+            dist/update-manifest.json
+
+      - name: Publish to Firebase App Distribution (Optional)
+        if: ${{ secrets.FIREBASE_APP_ID != '' && secrets.FIREBASE_CREDENTIAL_FILE_CONTENT != '' }}
+        uses: wzieba/Firebase-Distribution-Github-Action@v1
+        with:
+          appId: ${{ secrets.FIREBASE_APP_ID }}
+          serviceCredentialsFileContent: ${{ secrets.FIREBASE_CREDENTIAL_FILE_CONTENT }}
+          groups: ${{ secrets.FIREBASE_TESTER_GROUPS || 'testers' }}
+          file: dist/Ai-Smartphone-Doctor.apk
+          releaseNotes: "v${{ steps.version.outputs.VERSION_NAME }} (${{ steps.version.outputs.VERSION_CODE }}) - Auto build from GitHub main"
+
+      - name: Cleanup Sensitive Files
+        if: always()
+        run: |
+          rm -f .env my-upload-key.jks debug.keystore app/google-services.json
