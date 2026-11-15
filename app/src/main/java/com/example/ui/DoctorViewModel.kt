@@ -242,6 +242,13 @@ class DoctorViewModel(application: Application) : AndroidViewModel(application) 
         val current = _sessionContext.value
         val updated = when (response.intentHandled) {
             ConversationIntent.SMALL_TALK -> current
+            ConversationIntent.CREATOR_IDENTITY -> current.copy(
+                lastAssistantSummary = response.replyText.take(500),
+                isCreatorConversationActive = true,
+                creatorTopicsDiscussed = current.creatorTopicsDiscussed + listOfNotNull(response.creatorFacetDiscussed),
+                creatorTurnCount = current.creatorTurnCount + 1,
+                lastCreatorFacet = response.creatorFacetDiscussed ?: current.lastCreatorFacet
+            )
             ConversationIntent.CLARIFY_EXPLANATION -> current.copy(
                 activeProblemId = response.matchedProblemId ?: current.activeProblemId,
                 activeProblemTitle = response.matchedProblemTitle ?: current.activeProblemTitle,
@@ -268,7 +275,11 @@ class DoctorViewModel(application: Application) : AndroidViewModel(application) 
                     failedActionIds = if (sameProblem) current.failedActionIds else emptySet(),
                     succeededActionIds = if (sameProblem) current.succeededActionIds else emptySet(),
                     lastAssistantSummary = response.replyText.take(500),
-                    followUpStepOffset = if (sameProblem) current.followUpStepOffset else 0
+                    followUpStepOffset = if (sameProblem) current.followUpStepOffset else 0,
+                    isCreatorConversationActive = false,
+                    creatorTopicsDiscussed = current.creatorTopicsDiscussed,
+                    creatorTurnCount = current.creatorTurnCount,
+                    lastCreatorFacet = current.lastCreatorFacet
                 )
             }
         }

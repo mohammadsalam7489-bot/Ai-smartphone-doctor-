@@ -5,6 +5,7 @@ import org.json.JSONObject
 
 enum class ConversationIntent {
     SMALL_TALK,
+    CREATOR_IDENTITY,
     CLARIFY_EXPLANATION,
     FOLLOW_UP_NOT_FIXED,
     PROBLEM_REPORT
@@ -19,7 +20,11 @@ data class TroubleshootingSessionContext(
     val failedActionIds: Set<String> = emptySet(),
     val succeededActionIds: Set<String> = emptySet(),
     val lastAssistantSummary: String? = null,
-    val followUpStepOffset: Int = 0
+    val followUpStepOffset: Int = 0,
+    val isCreatorConversationActive: Boolean = false,
+    val creatorTopicsDiscussed: Set<String> = emptySet(),
+    val creatorTurnCount: Int = 0,
+    val lastCreatorFacet: String? = null
 ) {
     val hasActiveProblem: Boolean
         get() = !activeProblemId.isNullOrBlank() || !lastSymptomQuery.isNullOrBlank()
@@ -37,6 +42,10 @@ data class TroubleshootingSessionContext(
         put("succeededActionIds", JSONArray(succeededActionIds.toList()))
         put("lastAssistantSummary", (lastAssistantSummary ?: "").take(600))
         put("followUpStepOffset", followUpStepOffset)
+        put("isCreatorConversationActive", isCreatorConversationActive)
+        put("creatorTopicsDiscussed", JSONArray(creatorTopicsDiscussed.toList()))
+        put("creatorTurnCount", creatorTurnCount)
+        put("lastCreatorFacet", lastCreatorFacet ?: "")
     }.toString()
 
     companion object {
@@ -53,7 +62,11 @@ data class TroubleshootingSessionContext(
                     failedActionIds = jsonArrayToSet(obj.optJSONArray("failedActionIds")),
                     succeededActionIds = jsonArrayToSet(obj.optJSONArray("succeededActionIds")),
                     lastAssistantSummary = obj.optString("lastAssistantSummary").takeIf { it.isNotBlank() },
-                    followUpStepOffset = obj.optInt("followUpStepOffset", 0)
+                    followUpStepOffset = obj.optInt("followUpStepOffset", 0),
+                    isCreatorConversationActive = obj.optBoolean("isCreatorConversationActive", false),
+                    creatorTopicsDiscussed = jsonArrayToSet(obj.optJSONArray("creatorTopicsDiscussed")),
+                    creatorTurnCount = obj.optInt("creatorTurnCount", 0),
+                    lastCreatorFacet = obj.optString("lastCreatorFacet").takeIf { it.isNotBlank() }
                 )
             }.getOrDefault(TroubleshootingSessionContext())
         }
@@ -129,6 +142,10 @@ object ConversationContextManager {
 
         val containsHardwareSymptom = tokens.any { it in symptomKeywords } ||
             symptomKeywords.any { kw -> kw.length >= 4 && lower.contains(kw) }
+
+        if (CreatorIdentityKnowledge.isCreatorIdentityQuery(text, sessionContext, containsHardwareSymptom)) {
+            return ConversationIntent.CREATOR_IDENTITY
+        }
 
         if (clarifyPhrases.any { lower.contains(it) }) {
             return ConversationIntent.CLARIFY_EXPLANATION

@@ -13,14 +13,22 @@ object LanguageDetector {
     private val devanagariRegex = Regex("[\\u0900-\\u097F]")
 
     private val strongHinglishMarkers = setOf(
-        "mera", "meri", "mere", "tumhara", "hamara", "apne", "aap", "aapka", "aapko",
+        "mera", "meri", "mere", "tumhara", "tumhare", "tumhari", "tumhe", "tumhein", "tumko",
+        "hamara", "hamare", "apne", "aap", "aapka", "apka", "aapke", "apke", "aapki", "apki", "aapko",
         "nahi", "nahin", "nhi", "naa", "mat", "bilkul",
         "bahut", "bohot", "zyada", "jyada", "thoda", "kam",
         "garam", "thanda", "jaldi", "khatam", "khtm", "kharab",
         "band", "chalu", "chal", "chalta", "chalti", "chalte",
-        "hota", "hoti", "hote", "ho", "hai", "hain", "tha", "thi", "hu", "hoon",
+        "hota", "hoti", "hote", "ho", "hai", "hain", "tha", "thi", "the", "hu", "hoon",
         "raha", "rahi", "rahe", "rha", "rhi", "rhe", "gaya", "gayi", "gaye",
         "kaise", "kya", "kyu", "kyun", "kyon", "kab", "kahan", "kaun", "konsa",
+        "kisne", "kisko", "kiska", "kiski", "kiske", "banaya", "bnaya", "banayi", "bnayi", "banaye",
+        "malik", "maalik", "rachayita", "kahani", "kahaani", "madad",
+        "garib", "gareeb", "unpadh", "anpadh", "padhe", "likhe",
+        "paise", "paisa", "rupay", "kharch", "kharcha", "muft", "waqt", "samay",
+        "unhone", "unhonne", "inhone", "unka", "unki", "unke", "woh", "wo",
+        "soch", "sapna", "maksad", "maqsad", "uddeshya", "vajah", "liye", "liya", "diya",
+        "pasand", "pyar", "izzat", "chahte", "chahta", "sakta", "sakti", "sakte", "chahiye",
         "dikkat", "samasya", "pareshani", "wajah", "bina", "batao", "bataiye",
         "karo", "kariye", "karen", "kerna", "karna", "krna", "dekh", "dekho", "kiya", "kia",
         "mein", "lekin", "magar", "par", "aur", "ya", "bhi", "sab", "kuch", "kuchh",
@@ -56,7 +64,9 @@ object LanguageDetector {
             "apne aap", "bahut hang", "bahut garam", "jaldi drain", "jldi drain",
             "fix nahi", "fix nhi", "nhi hua", "nahi hua", "samajh nahi", "samajh nhi",
             "try kiya", "try kia", "abhi bhi", "koi aur", "aur easy",
-            "kaise ho", "kya kar", "theek hai", "thik hai", "koi baat"
+            "kaise ho", "kya kar", "theek hai", "thik hai", "koi baat",
+            "kisne banaya", "kisne bnaya", "kyu banaya", "kyun banaya",
+            "malik kaun", "madad karna", "paise kharch"
         ).any { lower.contains(it) }
 
         val singleWordHinglishGreetings = setOf("namaste", "shukriya", "dhanyawad", "dhanyavad")

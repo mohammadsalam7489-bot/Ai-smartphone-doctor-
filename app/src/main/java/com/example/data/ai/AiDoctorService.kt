@@ -55,7 +55,8 @@ data class DoctorResponse(
     val matchedProblemId: String? = null,
     val matchedProblemTitle: String? = null,
     val matchedCategory: String? = null,
-    val intentHandled: ConversationIntent = ConversationIntent.PROBLEM_REPORT
+    val intentHandled: ConversationIntent = ConversationIntent.PROBLEM_REPORT,
+    val creatorFacetDiscussed: String? = null
 )
 
 class AiDoctorService(
@@ -142,7 +143,20 @@ class AiDoctorService(
         val deviceLabel = "${vitals.brand} ${vitals.model}".trim().ifBlank { "Android Smartphone" }
         val proxyBase = aiProxyUrl.trim().trimEnd('/')
 
-        // 1. Handle normal human-like small talk gracefully without forcing robotic diagnostic forms
+        // 1. Handle Creator Identity ("Mohammad Slam") dynamically with conversation awareness
+        if (intent == ConversationIntent.CREATOR_IDENTITY) {
+            return@withContext handleCreatorIdentityTurn(
+                userMessage = userProblem,
+                vitals = vitals,
+                deviceLabel = deviceLabel,
+                conversationHistory = conversationHistory,
+                effectiveLanguage = effectiveLanguage,
+                proxyBase = proxyBase,
+                sessionContext = sessionContext
+            )
+        }
+
+        // 2. Handle normal human-like small talk gracefully without forcing robotic diagnostic forms
         if (intent == ConversationIntent.SMALL_TALK) {
             return@withContext handleSmallTalkTurn(
                 userMessage = userProblem,
@@ -331,10 +345,10 @@ class AiDoctorService(
             "RECENT CHAT:\n" + conversationHistory.takeLast(4).joinToString("\n") { (r, m) -> "$r: $m" } + "\n\n"
         } else ""
         val chatPrompt = """
-You are AI Smartphone Assistant (a helpful, polite, human-like Android assistant on $deviceLabel, Health Score ${vitals.healthScore}/100).
+You are AI Smartphone Assistant (a helpful, polite, human-like Android assistant on $deviceLabel, Health Score ${vitals.healthScore}/100), created and owned by Mohammad Slam (a BCA student).
 $langRule
 The user sent casual conversation / greeting / thanks (NOT a repair form request).
-Respond naturally in 1-3 friendly sentences like a helpful human technician chatting politely. Do not dump diagnostic checklists or fake repair cards.
+Respond naturally in 1-3 friendly sentences like a helpful human technician chatting politely. Do not dump diagnostic checklists or fake repair cards. Never claim Google created this app.
 $historyBlock
 USER: $userMessage
         """.trimIndent()
@@ -370,9 +384,89 @@ USER: $userMessage
         )
     }
 
-    private suspend fun callFirebaseConversational(prompt: String): Pair<String?, String> {
+    private suspend fun handleCreatorIdentityTurn(
+        userMessage: String,
+        vitals: DeviceVitals,
+        deviceLabel: String,
+        conversationHistory: List<Pair<String, String>>,
+        effectiveLanguage: String,
+        proxyBase: String,
+        sessionContext: TroubleshootingSessionContext
+    ): DoctorResponse {
+        val (dynamicFallbackText, resolvedFacet) = CreatorIdentityKnowledge.buildDynamicResponse(
+            userMessage = userMessage,
+            language = effectiveLanguage,
+            sessionContext = sessionContext
+        )
+
+        val langRule = when (effectiveLanguage) {
+            LanguageDetector.LANG_HINDI -> "Reply in 100% pure Devanagari Hindi (शुद्ध देवनागरी हिंदी). Write Mohammad Slam as मोहम्मद स्लैम. Do NOT mix English sentences or Hinglish."
+            LanguageDetector.LANG_HINGLISH -> "Reply in natural conversational Hinglish (Roman Hindi-English). Do NOT switch to pure English or Devanagari Hindi."
+            else -> "Reply in warm, natural, clear English with zero Hindi mixing."
+        }
+        val historyBlock = if (conversationHistory.isNotEmpty()) {
+            "RECENT CONVERSATION:\n" + conversationHistory.takeLast(6).joinToString("\n") { (r, m) ->
+                "${if (r == "user") "User" else "AI Doctor"}: $m"
+            } + "\n\n"
+        } else ""
+
+        val identityBlock = CreatorIdentityKnowledge.buildPermanentSystemInstructionBlock(
+            facet = resolvedFacet,
+            sessionContext = sessionContext
+        )
+        val prompt = """
+You are AI Smartphone Doctor (running on $deviceLabel, Health Score ${vitals.healthScore}/100).
+$identityBlock
+
+RESPONSE STYLE & LANGUAGE:
+- $langRule
+- Speak naturally, warmly, and conversationally in 2-4 sentences (do not output diagnostic forms, bulleted system checklists, or KB IDs).
+- Vary your phrasing naturally for this specific user question rather than repeating canned templates.
+$historyBlock
+USER: $userMessage
+        """.trimIndent()
+
+        if (proxyBase.isBlank()) {
+            val (cloudText, modelName) = runCatching {
+                withTimeout(15_000L) { callFirebaseConversational(prompt, temperatureValue = 0.7f) }
+            }.getOrDefault(null to SUPPORTED_GEMINI_MODELS.first())
+
+            if (!cloudText.isNullOrBlank() &&
+                CreatorIdentityKnowledge.passesAccuracyGuard(cloudText, resolvedFacet)
+            ) {
+                return DoctorResponse(
+                    replyText = cloudText,
+                    actions = emptyList(),
+                    repairPlan = null,
+                    autonomousBundle = null,
+                    aiStatus = AiServiceStatus.ONLINE_GEMINI,
+                    aiStatusDetail = "Cloud AI ($modelName) • Creator Identity",
+                    responseLanguage = effectiveLanguage,
+                    intentHandled = ConversationIntent.CREATOR_IDENTITY,
+                    creatorFacetDiscussed = resolvedFacet.topicKey
+                )
+            }
+        }
+
+        return DoctorResponse(
+            replyText = dynamicFallbackText,
+            actions = emptyList(),
+            repairPlan = null,
+            autonomousBundle = null,
+            aiStatus = AiServiceStatus.ONLINE_GEMINI,
+            aiStatusDetail = "Assistant Ready • Creator Identity ($deviceLabel)",
+            responseLanguage = effectiveLanguage,
+            intentHandled = ConversationIntent.CREATOR_IDENTITY,
+            creatorFacetDiscussed = resolvedFacet.topicKey
+        )
+    }
+
+    private suspend fun callFirebaseConversational(
+        prompt: String,
+        temperatureValue: Float = 0.6f
+    ): Pair<String?, String> {
         val config = generationConfig {
-            temperature = 0.6f
+            temperature = temperatureValue
         }
         for (modelName in SUPPORTED_GEMINI_MODELS) {
             coroutineContext.ensureActive()
@@ -454,7 +548,7 @@ USER: $userMessage
         } else ""
 
         return """
-You are AI Smartphone Assistant, a warm, empathetic, evidence-based Android hardware & software troubleshooting expert.
+You are AI Smartphone Assistant (created and owned by Mohammad Slam, a BCA student who built this app with zero investment to help people solve phone issues simply and honestly; Google only provides the Gemini AI model). Keep technical chats focused solely on diagnosing and fixing the phone issue without bringing up creator praise unless asked.
 CORE PHILOSOPHY: Speak naturally like a caring human technician. Diagnose first with verified telemetry. Separate automatic in-app checks from actions needing user permission/settings. Verify outcome last, and remember tried/failed steps.
 
 STRICT RULES:
@@ -838,6 +932,25 @@ ${if (hasScreenshot) "(User attached a device screenshot — analyze visible err
         val effectiveLanguage = LanguageDetector.detectResponseLanguage(userProblem, language)
         val intent = intentOverride ?: ConversationContextManager.classifyIntent(userProblem, sessionContext)
         val deviceLabel = "${vitals.brand} ${vitals.model}".trim().ifBlank { "Android Smartphone" }
+
+        if (intent == ConversationIntent.CREATOR_IDENTITY) {
+            val (dynamicReply, resolvedFacet) = CreatorIdentityKnowledge.buildDynamicResponse(
+                userMessage = userProblem,
+                language = effectiveLanguage,
+                sessionContext = sessionContext
+            )
+            return DoctorResponse(
+                replyText = dynamicReply,
+                actions = emptyList(),
+                repairPlan = null,
+                autonomousBundle = null,
+                aiStatus = AiServiceStatus.ONLINE_GEMINI,
+                aiStatusDetail = "Assistant Ready • Creator Identity ($deviceLabel)",
+                responseLanguage = effectiveLanguage,
+                intentHandled = ConversationIntent.CREATOR_IDENTITY,
+                creatorFacetDiscussed = resolvedFacet.topicKey
+            )
+        }
 
         if (intent == ConversationIntent.SMALL_TALK) {
             return DoctorResponse(
