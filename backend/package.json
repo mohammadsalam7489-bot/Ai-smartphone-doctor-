@@ -1,0 +1,14 @@
+{
+  "name": "ai-smartphone-doctor-proxy",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Secure server-side Gemini API proxy for AI Smartphone Doctor Android app (zero client-side key exposure).",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test server.test.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

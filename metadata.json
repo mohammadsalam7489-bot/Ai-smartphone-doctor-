@@ -1,0 +1,6 @@
+{
+  "name": "AI Smartphone Doctor",
+  "description": "AI-powered smartphone diagnostics, hardware testing, battery health, and repair guidance.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

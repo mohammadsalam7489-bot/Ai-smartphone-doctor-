@@ -1,0 +1,1193 @@
+{
+  "schema_version": "3.0.0",
+  "source_pdf": "Android_AI_Global_Device_OS_Compatibility_Manual_v3.pdf",
+  "manual_date": "2026-11-12",
+  "android_releases": [
+    {
+      "api_level": 38,
+      "release_label": "Android 18+ (API 38+ Future Placeholder)",
+      "is_future_or_preview": true,
+      "status": "UNVERIFIED_PLACEHOLDER",
+      "api_restrictions": [
+        "Unverified future Android release placeholder — verify official CDD/API notes before assuming automated repair paths.",
+        "Use Settings Search fallback and runtime permission checks."
+      ],
+      "supported_automation_notes": "Placeholder only; add verified instructions after official documentation and physical device testing."
+    },
+    {
+      "api_level": 37,
+      "release_label": "Android 17 (API 37 — Stable)",
+      "is_future_or_preview": false,
+      "status": "STABLE",
+      "api_restrictions": [
+        "Android 17 (released June 16, 2026) enforces new local-network access controls for apps targeting API 37.",
+        "Strict scoped storage, foreground service gates, and runtime/special permission controls.",
+        "System Wi-Fi/Cellular/Battery Saver and cross-app cache clearing remain user-mediated."
+      ],
+      "supported_automation_notes": "Use approved local-network permissions or privacy-preserving pickers, ConnectivityManager, PowerManager thermal API, and verified Settings intents."
+    },
+    {
+      "api_level": 36,
+      "release_label": "Android 16 (API 36 — Stable)",
+      "is_future_or_preview": false,
+      "status": "STABLE",
+      "api_restrictions": [
+        "Separate stable profile from Android 17; predictive/adaptive thermal & background limits active.",
+        "Third-party cross-app cache clearing & force-stop remain strictly sandboxed.",
+        "System write changes require explicit ACTION_MANAGE_WRITE_SETTINGS consent."
+      ],
+      "supported_automation_notes": "Full support for PowerManager thermal status, ConnectivityManager diagnostics, and Intent-based System Settings."
+    },
+    {
+      "api_level": 35,
+      "release_label": "Android 15 (API 35 — Stable)",
+      "is_future_or_preview": false,
+      "status": "STABLE",
+      "api_restrictions": [
+        "Foreground service timeout & Private Space isolation enforced.",
+        "Third-party cache clearing restricted to own app directories."
+      ],
+      "supported_automation_notes": "Thermal API, ConnectivityManager, and verified Settings intents supported."
+    },
+    {
+      "api_level": 34,
+      "release_label": "Android 14 (API 34 — Stable)",
+      "is_future_or_preview": false,
+      "status": "STABLE",
+      "api_restrictions": [
+        "Selected photos access & strict background/foreground service type enforcement.",
+        "Notification runtime permission required from API 33+."
+      ],
+      "supported_automation_notes": "Standard modern Android diagnostic & repair APIs supported."
+    },
+    {
+      "api_level": 33,
+      "release_label": "Android 13 (API 33 — Stable)",
+      "is_future_or_preview": false,
+      "status": "STABLE",
+      "api_restrictions": [
+        "POST_NOTIFICATIONS runtime permission & NEARBY_WIFI_DEVICES introduced.",
+        "Silent Wi-Fi toggling and background app killing blocked."
+      ],
+      "supported_automation_notes": "Standard modern Android diagnostic & repair APIs supported."
+    },
+    {
+      "api_level": 29,
+      "release_label": "Android 10–12L (API 29–32 — Legacy Supported)",
+      "is_future_or_preview": false,
+      "status": "STABLE",
+      "api_restrictions": [
+        "Android 10+ prohibits apps from toggling Wi-Fi programmatically (Settings Panel required).",
+        "PowerManager thermal status available from API 29+."
+      ],
+      "supported_automation_notes": "Audio, Battery, Connectivity, and Thermal status APIs supported."
+    },
+    {
+      "api_level": 24,
+      "release_label": "Android 7–9 (API 24–28 — Legacy Baseline)",
+      "is_future_or_preview": false,
+      "status": "STABLE",
+      "api_restrictions": [
+        "Legacy Android API surface; PowerManager thermal status API unavailable below API 29."
+      ],
+      "supported_automation_notes": "Core Battery, Storage, RAM, and Settings Intent flows supported."
+    }
+  ],
+  "total_oem_families": 30,
+  "oem_families": [
+    {
+      "profile_id": "OEM-GOOGLE-PIXELUI",
+      "manufacturer": "Google",
+      "aliases": [
+        "google",
+        "pixel"
+      ],
+      "software_family": "Pixel Android / Pixel UI",
+      "profile_notes": "Pixel phones, tablets; features differ by generation.",
+      "gms_available": true,
+      "form_factors": [
+        "phone",
+        "tablet",
+        "foldable"
+      ],
+      "coverage_tier": "B_OEM_FAMILY_VERIFIED",
+      "verification_status": "source_checked",
+      "is_path_verified": true,
+      "settings_paths": {
+        "battery": "Settings > Battery > Battery Saver / Battery usage",
+        "storage": "Settings > Storage > Free up space",
+        "app_cache": "Settings > Apps > See all apps > [Select App] > Storage & cache > Clear cache",
+        "network": "Settings > Network & internet > Internet / SIMs",
+        "notifications": "Settings > Notifications > App notifications",
+        "display": "Settings > Display & touch",
+        "sound": "Settings > Sound & vibration",
+        "bluetooth": "Settings > Connected devices > Connection preferences > Bluetooth",
+        "system_update": "Settings > System > Software updates",
+        "accessibility": "Settings > Accessibility",
+        "location": "Settings > Location",
+        "security": "Settings > Security & privacy",
+        "accounts": "Settings > Passwords, passkeys & accounts",
+        "language": "Settings > System > Languages / Keyboard",
+        "default_apps": "Settings > Apps > Default apps",
+        "developer": "Settings > System > Developer options"
+      }
+    },
+    {
+      "profile_id": "OEM-SAMSUNG-ONEUI",
+      "manufacturer": "Samsung",
+      "aliases": [
+        "samsung"
+      ],
+      "software_family": "One UI",
+      "profile_notes": "Galaxy S, Z, A, M, F, tablets, rugged/enterprise.",
+      "gms_available": true,
+      "form_factors": [
+        "phone",
+        "tablet",
+        "foldable",
+        "rugged"
+      ],
+      "coverage_tier": "B_OEM_FAMILY_VERIFIED",
+      "verification_status": "source_checked",
+      "is_path_verified": true,
+      "settings_paths": {
+        "battery": "Settings > Battery (or Device care > Battery) > Power saving / Background usage limits",
+        "storage": "Settings > Device care > Storage",
+        "app_cache": "Settings > Apps > [Select App] > Storage > Clear cache",
+        "network": "Settings > Connections > Wi-Fi / Mobile networks",
+        "notifications": "Settings > Notifications > App notifications",
+        "display": "Settings > Display > Screen timeout / Motion smoothness",
+        "sound": "Settings > Sounds and vibration",
+        "bluetooth": "Settings > Connections > Bluetooth",
+        "system_update": "Settings > Software update > Download and install",
+        "accessibility": "Settings > Accessibility",
+        "location": "Settings > Location",
+        "security": "Settings > Security and privacy",
+        "accounts": "Settings > Accounts and backup > Manage accounts",
+        "language": "Settings > General management > Language / Keyboard list and default",
+        "default_apps": "Settings > Apps > Choose default apps",
+        "developer": "Settings > Developer options"
+      }
+    },
+    {
+      "profile_id": "OEM-XIAOMI-HYPEROS",
+      "manufacturer": "Xiaomi",
+      "aliases": [
+        "xiaomi",
+        "mi"
+      ],
+      "software_family": "HyperOS; older MIUI",
+      "profile_notes": "Xiaomi numbered, T, Mix, tablets; region variants.",
+      "gms_available": true,
+      "form_factors": [
+        "phone",
+        "tablet",
+        "foldable"
+      ],
+      "coverage_tier": "B_OEM_FAMILY_VERIFIED",
+      "verification_status": "source_checked",
+      "is_path_verified": true,
+      "settings_paths": {
+        "battery": "Settings > Battery (or Security app > Battery) > App battery saver",
+        "storage": "Settings > About phone > Storage",
+        "app_cache": "Settings > Apps > Manage apps > [Select App] > Clear data > Clear cache",
+        "network": "Settings > Wi-Fi / Mobile networks",
+        "notifications": "Settings > Notifications & Control center > App notifications",
+        "display": "Settings > Display & brightness",
+        "sound": "Settings > Sound & vibration",
+        "bluetooth": "Settings > Bluetooth",
+        "system_update": "Settings > About phone > Xiaomi HyperOS / MIUI version",
+        "accessibility": "Settings > Additional settings > Accessibility",
+        "location": "Settings > Location",
+        "security": "Settings > Privacy & Security (or Security app)",
+        "accounts": "Settings > Accounts & sync",
+        "language": "Settings > Additional settings > Languages & input",
+        "default_apps": "Settings > Apps > Manage apps > 3-dots > Default apps",
+        "developer": "Settings > Additional settings > Developer options"
+      }
+    },
+    {
+      "profile_id": "OEM-REDMI-HYPEROS",
+      "manufacturer": "Redmi",
+      "aliases": [
+        "redmi"
+      ],
+      "software_family": "HyperOS / MIUI",
+      "profile_notes": "Redmi Note, numbered Redmi, Redmi Pad.",
+      "gms_available": true,
+      "form_factors": [
+        "phone",
+        "tablet"
+      ],
+      "coverage_tier": "B_OEM_FAMILY_VERIFIED",
+      "verification_status": "source_checked",
+      "is_path_verified": true,
+      "settings_paths": {
+        "battery": "Settings > Battery > App battery saver / Battery saver",
+        "storage": "Settings > About phone > Storage",
+        "app_cache": "Settings > Apps > Manage apps > [Select App] > Clear data > Clear cache",
+        "network": "Settings > Wi-Fi / Mobile networks",
+        "notifications": "Settings > Notifications & Control center > App notifications",
+        "display": "Settings > Display & brightness",
+        "sound": "Settings > Sound & vibration",
+        "bluetooth": "Settings > Bluetooth",
+        "system_update": "Settings > About phone > OS update",
+        "accessibility": "Settings > Additional settings > Accessibility",
+        "location": "Settings > Location",
+        "security": "Settings > Privacy & Security",
+        "accounts": "Settings > Accounts & sync",
+        "language": "Settings > Additional settings > Languages & input",
+        "default_apps": "Settings > Apps > Manage apps > 3-dots > Default apps",
+        "developer": "Settings > Additional settings > Developer options"
+      }
+    },
+    {
+      "profile_id": "OEM-POCO-HYPEROS",
+      "manufacturer": "POCO",
+      "aliases": [
+        "poco"
+      ],
+      "software_family": "HyperOS / MIUI",
+      "profile_notes": "F, X, M, C families; game controls vary.",
+      "gms_available": true,
+      "form_factors": [
+        "phone",
+        "tablet"
+      ],
+      "coverage_tier": "B_OEM_FAMILY_VERIFIED",
+      "verification_status": "source_checked",
+      "is_path_verified": true,
+      "settings_paths": {
+        "battery": "Settings > Battery > App battery saver / Performance mode",
+        "storage": "Settings > About phone > Storage",
+        "app_cache": "Settings > Apps > Manage apps > [Select App] > Clear data > Clear cache",
+        "network": "Settings > Wi-Fi / Mobile networks",
+        "notifications": "Settings > Notifications & Status bar",
+        "display": "Settings > Display",
+        "sound": "Settings > Sound & vibration",
+        "bluetooth": "Settings > Bluetooth",
+        "system_update": "Settings > About phone > System update",
+        "accessibility": "Settings > Additional settings > Accessibility",
+        "location": "Settings > Location",
+        "security": "Settings > Security status / Privacy protection",
+        "accounts": "Settings > Accounts & sync",
+        "language": "Settings > Additional settings > Languages & input",
+        "default_apps": "Settings > Apps > Manage apps > 3-dots > Default apps",
+        "developer": "Settings > Additional settings > Developer options"
+      }
+    },
+    {
+      "profile_id": "OEM-OPPO-COLOROS",
+      "manufacturer": "OPPO",
+      "aliases": [
+        "oppo"
+      ],
+      "software_family": "ColorOS",
+      "profile_notes": "Find, Reno, A, tablets; version/market matters.",
+      "gms_available": true,
+      "form_factors": [
+        "phone",
+        "tablet",
+        "foldable"
+      ],
+      "coverage_tier": "B_OEM_FAMILY_VERIFIED",
+      "verification_status": "source_checked",
+      "is_path_verified": true,
+      "settings_paths": {
+        "battery": "Settings > Battery > Power saving mode / More battery settings",
+        "storage": "Settings > About device > Storage",
+        "app_cache": "Settings > Apps > App management > [Select App] > Storage usage > Clear cache",
+        "network": "Settings > Wi-Fi / Mobile network",
+        "notifications": "Settings > Notifications & status bar",
+        "display": "Settings > Display & brightness",
+        "sound": "Settings > Sound & vibration",
+        "bluetooth": "Settings > Bluetooth",
+        "system_update": "Settings > About device > Software update",
+        "accessibility": "Settings > System settings / Additional settings > Accessibility",
+        "location": "Settings > Location",
+        "security": "Settings > Security & privacy",
+        "accounts": "Settings > Users & accounts",
+        "language": "Settings > System settings > Keyboard & input method",
+        "default_apps": "Settings > Apps > Default apps",
+        "developer": "Settings > System settings > Developer options"
+      }
+    },
+    {
+      "profile_id": "OEM-ONEPLUS-OXYGENOS",
+      "manufacturer": "OnePlus",
+      "aliases": [
+        "oneplus"
+      ],
+      "software_family": "OxygenOS; historical variants",
+      "profile_notes": "Numbered, Nord, tablets; don't assume identical to ColorOS.",
+      "gms_available": true,
+      "form_factors": [
+        "phone",
+        "tablet",
+        "foldable"
+      ],
+      "coverage_tier": "B_OEM_FAMILY_VERIFIED",
+      "verification_status": "source_checked",
+      "is_path_verified": true,
+      "settings_paths": {
+        "battery": "Settings > Battery > Power saving mode / Battery health / More settings",
+        "storage": "Settings > About device > Storage",
+        "app_cache": "Settings > Apps > App management > [Select App] > Storage usage > Clear cache",
+        "network": "Settings > Wi-Fi / Mobile network",
+        "notifications": "Settings > Notifications & status bar > App notifications",
+        "display": "Settings > Display & brightness",
+        "sound": "Settings > Sound & vibration",
+        "bluetooth": "Settings > Bluetooth",
+        "system_update": "Settings > About device > OxygenOS update",
+        "accessibility": "Settings > System settings > Accessibility",
+        "location": "Settings > Location",
+        "security": "Settings > Security & privacy",
+        "accounts": "Settings > Users & accounts",
+        "language": "Settings > System settings > Languages & keyboard",
+        "default_apps": "Settings > Apps > Default apps",
+        "developer": "Settings > System settings > Developer options"
+      }
+    },
+    {
+      "profile_id": "OEM-REALME-REALMEUI",
+      "manufacturer": "realme",
+      "aliases": [
+        "realme"
+      ],
+      "software_family": "realme UI",
+      "profile_notes": "Numbered, GT, Narzo, C, tablets; region/build differences.",
+      "gms_available": true,
+      "form_factors": [
+        "phone",
+        "tablet"
+      ],
+      "coverage_tier": "B_OEM_FAMILY_VERIFIED",
+      "verification_status": "source_checked",
+      "is_path_verified": true,
+      "settings_paths": {
+        "battery": "Settings > Battery > Power saving mode / App battery management",
+        "storage": "Settings > Storage (or About device > Storage)",
+        "app_cache": "Settings > Apps > App management > [Select App] > Storage usage > Clear cache",
+        "network": "Settings > Wi-Fi / Mobile network",
+        "notifications": "Settings > Notifications & status bar",
+        "display": "Settings > Display & brightness",
+        "sound": "Settings > Sound & vibration",
+        "bluetooth": "Settings > Bluetooth",
+        "system_update": "Settings > About device > realme UI update",
+        "accessibility": "Settings > System settings > Accessibility",
+        "location": "Settings > Location",
+        "security": "Settings > Security & privacy",
+        "accounts": "Settings > Users & accounts",
+        "language": "Settings > System settings > Keyboard & input method",
+        "default_apps": "Settings > Apps > Default apps",
+        "developer": "Settings > System settings > Developer options"
+      }
+    },
+    {
+      "profile_id": "OEM-VIVO-FUNTOUCH",
+      "manufacturer": "vivo",
+      "aliases": [
+        "vivo"
+      ],
+      "software_family": "Funtouch OS / OriginOS",
+      "profile_notes": "Market-dependent; detect actual installed skin.",
+      "gms_available": true,
+      "form_factors": [
+        "phone",
+        "tablet",
+        "foldable"
+      ],
+      "coverage_tier": "B_OEM_FAMILY_VERIFIED",
+      "verification_status": "source_checked",
+      "is_path_verified": true,
+      "settings_paths": {
+        "battery": "Settings > Battery (or iManager > Power management) > Background power consumption",
+        "storage": "Settings > RAM & storage space",
+        "app_cache": "Settings > Apps > See all apps > [Select App] > Storage & cache > Clear cache",
+        "network": "Settings > Network & internet",
+        "notifications": "Settings > Notifications > App settings",
+        "display": "Settings > Display & brightness",
+        "sound": "Settings > Sound & vibration",
+        "bluetooth": "Settings > Bluetooth & devices",
+        "system_update": "Settings > System update",
+        "accessibility": "Settings > Shortcuts & accessibility > Accessibility",
+        "location": "Settings > Location",
+        "security": "Settings > Security / Privacy",
+        "accounts": "Settings > Passwords & accounts",
+        "language": "Settings > System > Languages & input",
+        "default_apps": "Settings > Apps > Default apps",
+        "developer": "Settings > System > Developer options"
+      }
+    },
+    {
+      "profile_id": "OEM-IQOO-FUNTOUCH",
+      "manufacturer": "iQOO",
+      "aliases": [
+        "iqoo"
+      ],
+      "software_family": "Funtouch / OriginOS variants",
+      "profile_notes": "Separate model profile even where UI resembles vivo.",
+      "gms_available": true,
+      "form_factors": [
+        "phone"
+      ],
+      "coverage_tier": "B_OEM_FAMILY_VERIFIED",
+      "verification_status": "source_checked",
+      "is_path_verified": true,
+      "settings_paths": {
+        "battery": "Settings > Battery > Background power consumption / Ultra Game Mode",
+        "storage": "Settings > RAM & storage space",
+        "app_cache": "Settings > Apps > See all apps > [Select App] > Storage & cache > Clear cache",
+        "network": "Settings > Network & internet",
+        "notifications": "Settings > Notifications > App settings",
+        "display": "Settings > Display & brightness",
+        "sound": "Settings > Sound & vibration",
+        "bluetooth": "Settings > Bluetooth & devices",
+        "system_update": "Settings > System update",
+        "accessibility": "Settings > Shortcuts & accessibility > Accessibility",
+        "location": "Settings > Location",
+        "security": "Settings > Security / Privacy",
+        "accounts": "Settings > Passwords & accounts",
+        "language": "Settings > System > Languages & input",
+        "default_apps": "Settings > Apps > Default apps",
+        "developer": "Settings > System > Developer options"
+      }
+    },
+    {
+      "profile_id": "OEM-MOTOROLA-HELLOUI",
+      "manufacturer": "Motorola",
+      "aliases": [
+        "motorola",
+        "moto"
+      ],
+      "software_family": "Hello UI / My UX / near-stock",
+      "profile_notes": "G, Edge, Razr, ThinkPhone; carrier variants.",
+      "gms_available": true,
+      "form_factors": [
+        "phone",
+        "foldable"
+      ],
+      "coverage_tier": "B_OEM_FAMILY_VERIFIED",
+      "verification_status": "source_checked",
+      "is_path_verified": true,
+      "settings_paths": {
+        "battery": "Settings > Battery > Battery Saver / Adaptive Battery",
+        "storage": "Settings > Storage > Free up space",
+        "app_cache": "Settings > Apps > See all apps > [Select App] > Storage & cache > Clear cache",
+        "network": "Settings > Network & internet",
+        "notifications": "Settings > Notifications > App notifications",
+        "display": "Settings > Display",
+        "sound": "Settings > Sound & vibration",
+        "bluetooth": "Settings > Connected devices",
+        "system_update": "Settings > System updates",
+        "accessibility": "Settings > Accessibility",
+        "location": "Settings > Location",
+        "security": "Settings > Security & privacy",
+        "accounts": "Settings > Passwords & accounts",
+        "language": "Settings > System > Languages & input",
+        "default_apps": "Settings > Apps > Default apps",
+        "developer": "Settings > System > Developer options"
+      }
+    },
+    {
+      "profile_id": "OEM-NOTHING-OS",
+      "manufacturer": "Nothing",
+      "aliases": [
+        "nothing",
+        "cmf"
+      ],
+      "software_family": "Nothing OS",
+      "profile_notes": "Phone and CMF; version and model matter.",
+      "gms_available": true,
+      "form_factors": [
+        "phone"
+      ],
+      "coverage_tier": "B_OEM_FAMILY_VERIFIED",
+      "verification_status": "source_checked",
+      "is_path_verified": true,
+      "settings_paths": {
+        "battery": "Settings > Battery > Battery Saver / Sleep standby optimization",
+        "storage": "Settings > Storage",
+        "app_cache": "Settings > Apps > All apps > [Select App] > Storage & cache > Clear cache",
+        "network": "Settings > Network & internet",
+        "notifications": "Settings > Notifications > App settings",
+        "display": "Settings > Display",
+        "sound": "Settings > Sound & vibration",
+        "bluetooth": "Settings > Connected devices",
+        "system_update": "Settings > System > System update",
+        "accessibility": "Settings > Accessibility",
+        "location": "Settings > Location",
+        "security": "Settings > Security & privacy",
+        "accounts": "Settings > Passwords & accounts",
+        "language": "Settings > System > Languages & input",
+        "default_apps": "Settings > Apps > Default apps",
+        "developer": "Settings > System > Developer options"
+      }
+    },
+    {
+      "profile_id": "OEM-HONOR-MAGIC",
+      "manufacturer": "HONOR",
+      "aliases": [
+        "honor"
+      ],
+      "software_family": "MagicOS",
+      "profile_notes": "Magic, X, tablets; regional services differ.",
+      "gms_available": true,
+      "form_factors": [
+        "phone",
+        "tablet",
+        "foldable"
+      ],
+      "coverage_tier": "C_OS_BASELINE_VERIFIED",
+      "verification_status": "doc_referenced",
+      "is_path_verified": false,
+      "settings_paths": {
+        "battery": "Open Settings > Search 'Battery Saver' or 'Battery'",
+        "storage": "Open Settings > Search 'Storage'",
+        "app_cache": "Open Settings > Search 'Apps' > Select App > Storage > Clear Cache",
+        "network": "Open Settings > Search 'Wi-Fi' or 'Network'",
+        "notifications": "Open Settings > Search 'Notifications'",
+        "display": "Open Settings > Search 'Display' or 'Screen timeout'",
+        "sound": "Open Settings > Search 'Sound' or 'Volume'",
+        "bluetooth": "Open Settings > Search 'Bluetooth'",
+        "system_update": "Open Settings > Search 'System update' or 'Software update'",
+        "accessibility": "Open Settings > Search 'Accessibility'",
+        "location": "Open Settings > Search 'Location'",
+        "security": "Open Settings > Search 'Security' or 'Privacy'",
+        "accounts": "Open Settings > Search 'Accounts' or 'Sync'",
+        "language": "Open Settings > Search 'Languages' or 'Keyboard'",
+        "default_apps": "Open Settings > Search 'Default apps'",
+        "developer": "Open Settings > Search 'Developer options'"
+      }
+    },
+    {
+      "profile_id": "OEM-HUAWEI-EMUI",
+      "manufacturer": "Huawei",
+      "aliases": [
+        "huawei"
+      ],
+      "software_family": "EMUI / HarmonyOS",
+      "profile_notes": "Separate profile; Google services (GMS) may be absent.",
+      "gms_available": false,
+      "form_factors": [
+        "phone",
+        "tablet",
+        "foldable"
+      ],
+      "coverage_tier": "D_UNKNOWN",
+      "verification_status": "doc_referenced",
+      "is_path_verified": false,
+      "settings_paths": {
+        "battery": "Open Settings > Search 'Battery Saver' or 'Battery'",
+        "storage": "Open Settings > Search 'Storage'",
+        "app_cache": "Open Settings > Search 'Apps' > Select App > Storage > Clear Cache",
+        "network": "Open Settings > Search 'Wi-Fi' or 'Network'",
+        "notifications": "Open Settings > Search 'Notifications'",
+        "display": "Open Settings > Search 'Display' or 'Screen timeout'",
+        "sound": "Open Settings > Search 'Sound' or 'Volume'",
+        "bluetooth": "Open Settings > Search 'Bluetooth'",
+        "system_update": "Open Settings > Search 'System update' or 'Software update'",
+        "accessibility": "Open Settings > Search 'Accessibility'",
+        "location": "Open Settings > Search 'Location'",
+        "security": "Open Settings > Search 'Security' or 'Privacy'",
+        "accounts": "Open Settings > Search 'Accounts' or 'Sync'",
+        "language": "Open Settings > Search 'Languages' or 'Keyboard'",
+        "default_apps": "Open Settings > Search 'Default apps'",
+        "developer": "Open Settings > Search 'Developer options'"
+      }
+    },
+    {
+      "profile_id": "OEM-SONY-XPERIA",
+      "manufacturer": "Sony",
+      "aliases": [
+        "sony",
+        "xperia"
+      ],
+      "software_family": "Xperia UI / near-stock",
+      "profile_notes": "Xperia; camera/audio/display functions model-specific.",
+      "gms_available": true,
+      "form_factors": [
+        "phone"
+      ],
+      "coverage_tier": "C_OS_BASELINE_VERIFIED",
+      "verification_status": "doc_referenced",
+      "is_path_verified": false,
+      "settings_paths": {
+        "battery": "Open Settings > Search 'Battery Saver' or 'Battery'",
+        "storage": "Open Settings > Search 'Storage'",
+        "app_cache": "Open Settings > Search 'Apps' > Select App > Storage > Clear Cache",
+        "network": "Open Settings > Search 'Wi-Fi' or 'Network'",
+        "notifications": "Open Settings > Search 'Notifications'",
+        "display": "Open Settings > Search 'Display' or 'Screen timeout'",
+        "sound": "Open Settings > Search 'Sound' or 'Volume'",
+        "bluetooth": "Open Settings > Search 'Bluetooth'",
+        "system_update": "Open Settings > Search 'System update' or 'Software update'",
+        "accessibility": "Open Settings > Search 'Accessibility'",
+        "location": "Open Settings > Search 'Location'",
+        "security": "Open Settings > Search 'Security' or 'Privacy'",
+        "accounts": "Open Settings > Search 'Accounts' or 'Sync'",
+        "language": "Open Settings > Search 'Languages' or 'Keyboard'",
+        "default_apps": "Open Settings > Search 'Default apps'",
+        "developer": "Open Settings > Search 'Developer options'"
+      }
+    },
+    {
+      "profile_id": "OEM-ASUS-ZENUI",
+      "manufacturer": "ASUS",
+      "aliases": [
+        "asus",
+        "zenfone",
+        "rog"
+      ],
+      "software_family": "ZenUI / ROG UI",
+      "profile_notes": "Zenfone, ROG; game controls model-specific.",
+      "gms_available": true,
+      "form_factors": [
+        "phone"
+      ],
+      "coverage_tier": "C_OS_BASELINE_VERIFIED",
+      "verification_status": "doc_referenced",
+      "is_path_verified": false,
+      "settings_paths": {
+        "battery": "Open Settings > Search 'Battery Saver' or 'Battery'",
+        "storage": "Open Settings > Search 'Storage'",
+        "app_cache": "Open Settings > Search 'Apps' > Select App > Storage > Clear Cache",
+        "network": "Open Settings > Search 'Wi-Fi' or 'Network'",
+        "notifications": "Open Settings > Search 'Notifications'",
+        "display": "Open Settings > Search 'Display' or 'Screen timeout'",
+        "sound": "Open Settings > Search 'Sound' or 'Volume'",
+        "bluetooth": "Open Settings > Search 'Bluetooth'",
+        "system_update": "Open Settings > Search 'System update' or 'Software update'",
+        "accessibility": "Open Settings > Search 'Accessibility'",
+        "location": "Open Settings > Search 'Location'",
+        "security": "Open Settings > Search 'Security' or 'Privacy'",
+        "accounts": "Open Settings > Search 'Accounts' or 'Sync'",
+        "language": "Open Settings > Search 'Languages' or 'Keyboard'",
+        "default_apps": "Open Settings > Search 'Default apps'",
+        "developer": "Open Settings > Search 'Developer options'"
+      }
+    },
+    {
+      "profile_id": "OEM-LENOVO-ZUI",
+      "manufacturer": "Lenovo",
+      "aliases": [
+        "lenovo"
+      ],
+      "software_family": "ZUI / Lenovo Android",
+      "profile_notes": "Phones/tablets; regional naming differs.",
+      "gms_available": true,
+      "form_factors": [
+        "phone",
+        "tablet"
+      ],
+      "coverage_tier": "C_OS_BASELINE_VERIFIED",
+      "verification_status": "doc_referenced",
+      "is_path_verified": false,
+      "settings_paths": {
+        "battery": "Open Settings > Search 'Battery Saver' or 'Battery'",
+        "storage": "Open Settings > Search 'Storage'",
+        "app_cache": "Open Settings > Search 'Apps' > Select App > Storage > Clear Cache",
+        "network": "Open Settings > Search 'Wi-Fi' or 'Network'",
+        "notifications": "Open Settings > Search 'Notifications'",
+        "display": "Open Settings > Search 'Display' or 'Screen timeout'",
+        "sound": "Open Settings > Search 'Sound' or 'Volume'",
+        "bluetooth": "Open Settings > Search 'Bluetooth'",
+        "system_update": "Open Settings > Search 'System update' or 'Software update'",
+        "accessibility": "Open Settings > Search 'Accessibility'",
+        "location": "Open Settings > Search 'Location'",
+        "security": "Open Settings > Search 'Security' or 'Privacy'",
+        "accounts": "Open Settings > Search 'Accounts' or 'Sync'",
+        "language": "Open Settings > Search 'Languages' or 'Keyboard'",
+        "default_apps": "Open Settings > Search 'Default apps'",
+        "developer": "Open Settings > Search 'Developer options'"
+      }
+    },
+    {
+      "profile_id": "OEM-HMD-NOKIA",
+      "manufacturer": "HMD / Nokia",
+      "aliases": [
+        "hmd",
+        "nokia"
+      ],
+      "software_family": "Near-stock or vendor build",
+      "profile_notes": "Model and support lifecycle vary.",
+      "gms_available": true,
+      "form_factors": [
+        "phone",
+        "tablet"
+      ],
+      "coverage_tier": "C_OS_BASELINE_VERIFIED",
+      "verification_status": "doc_referenced",
+      "is_path_verified": false,
+      "settings_paths": {
+        "battery": "Open Settings > Search 'Battery Saver' or 'Battery'",
+        "storage": "Open Settings > Search 'Storage'",
+        "app_cache": "Open Settings > Search 'Apps' > Select App > Storage > Clear Cache",
+        "network": "Open Settings > Search 'Wi-Fi' or 'Network'",
+        "notifications": "Open Settings > Search 'Notifications'",
+        "display": "Open Settings > Search 'Display' or 'Screen timeout'",
+        "sound": "Open Settings > Search 'Sound' or 'Volume'",
+        "bluetooth": "Open Settings > Search 'Bluetooth'",
+        "system_update": "Open Settings > Search 'System update' or 'Software update'",
+        "accessibility": "Open Settings > Search 'Accessibility'",
+        "location": "Open Settings > Search 'Location'",
+        "security": "Open Settings > Search 'Security' or 'Privacy'",
+        "accounts": "Open Settings > Search 'Accounts' or 'Sync'",
+        "language": "Open Settings > Search 'Languages' or 'Keyboard'",
+        "default_apps": "Open Settings > Search 'Default apps'",
+        "developer": "Open Settings > Search 'Developer options'"
+      }
+    },
+    {
+      "profile_id": "OEM-TECNO-HIOS",
+      "manufacturer": "TECNO",
+      "aliases": [
+        "tecno"
+      ],
+      "software_family": "HiOS",
+      "profile_notes": "Camon, Phantom, Pova, Spark, tablets.",
+      "gms_available": true,
+      "form_factors": [
+        "phone",
+        "tablet"
+      ],
+      "coverage_tier": "C_OS_BASELINE_VERIFIED",
+      "verification_status": "doc_referenced",
+      "is_path_verified": false,
+      "settings_paths": {
+        "battery": "Open Settings > Search 'Battery Saver' or 'Battery'",
+        "storage": "Open Settings > Search 'Storage'",
+        "app_cache": "Open Settings > Search 'Apps' > Select App > Storage > Clear Cache",
+        "network": "Open Settings > Search 'Wi-Fi' or 'Network'",
+        "notifications": "Open Settings > Search 'Notifications'",
+        "display": "Open Settings > Search 'Display' or 'Screen timeout'",
+        "sound": "Open Settings > Search 'Sound' or 'Volume'",
+        "bluetooth": "Open Settings > Search 'Bluetooth'",
+        "system_update": "Open Settings > Search 'System update' or 'Software update'",
+        "accessibility": "Open Settings > Search 'Accessibility'",
+        "location": "Open Settings > Search 'Location'",
+        "security": "Open Settings > Search 'Security' or 'Privacy'",
+        "accounts": "Open Settings > Search 'Accounts' or 'Sync'",
+        "language": "Open Settings > Search 'Languages' or 'Keyboard'",
+        "default_apps": "Open Settings > Search 'Default apps'",
+        "developer": "Open Settings > Search 'Developer options'"
+      }
+    },
+    {
+      "profile_id": "OEM-INFINIX-XOS",
+      "manufacturer": "Infinix",
+      "aliases": [
+        "infinix"
+      ],
+      "software_family": "XOS",
+      "profile_notes": "Zero, Note, GT, Hot, tablets.",
+      "gms_available": true,
+      "form_factors": [
+        "phone",
+        "tablet"
+      ],
+      "coverage_tier": "C_OS_BASELINE_VERIFIED",
+      "verification_status": "doc_referenced",
+      "is_path_verified": false,
+      "settings_paths": {
+        "battery": "Open Settings > Search 'Battery Saver' or 'Battery'",
+        "storage": "Open Settings > Search 'Storage'",
+        "app_cache": "Open Settings > Search 'Apps' > Select App > Storage > Clear Cache",
+        "network": "Open Settings > Search 'Wi-Fi' or 'Network'",
+        "notifications": "Open Settings > Search 'Notifications'",
+        "display": "Open Settings > Search 'Display' or 'Screen timeout'",
+        "sound": "Open Settings > Search 'Sound' or 'Volume'",
+        "bluetooth": "Open Settings > Search 'Bluetooth'",
+        "system_update": "Open Settings > Search 'System update' or 'Software update'",
+        "accessibility": "Open Settings > Search 'Accessibility'",
+        "location": "Open Settings > Search 'Location'",
+        "security": "Open Settings > Search 'Security' or 'Privacy'",
+        "accounts": "Open Settings > Search 'Accounts' or 'Sync'",
+        "language": "Open Settings > Search 'Languages' or 'Keyboard'",
+        "default_apps": "Open Settings > Search 'Default apps'",
+        "developer": "Open Settings > Search 'Developer options'"
+      }
+    },
+    {
+      "profile_id": "OEM-ITEL-OS",
+      "manufacturer": "itel",
+      "aliases": [
+        "itel"
+      ],
+      "software_family": "itel OS / Android Go variants",
+      "profile_notes": "Entry-level builds may have reduced features.",
+      "gms_available": true,
+      "form_factors": [
+        "phone"
+      ],
+      "coverage_tier": "D_UNKNOWN",
+      "verification_status": "doc_referenced",
+      "is_path_verified": false,
+      "settings_paths": {
+        "battery": "Open Settings > Search 'Battery Saver' or 'Battery'",
+        "storage": "Open Settings > Search 'Storage'",
+        "app_cache": "Open Settings > Search 'Apps' > Select App > Storage > Clear Cache",
+        "network": "Open Settings > Search 'Wi-Fi' or 'Network'",
+        "notifications": "Open Settings > Search 'Notifications'",
+        "display": "Open Settings > Search 'Display' or 'Screen timeout'",
+        "sound": "Open Settings > Search 'Sound' or 'Volume'",
+        "bluetooth": "Open Settings > Search 'Bluetooth'",
+        "system_update": "Open Settings > Search 'System update' or 'Software update'",
+        "accessibility": "Open Settings > Search 'Accessibility'",
+        "location": "Open Settings > Search 'Location'",
+        "security": "Open Settings > Search 'Security' or 'Privacy'",
+        "accounts": "Open Settings > Search 'Accounts' or 'Sync'",
+        "language": "Open Settings > Search 'Languages' or 'Keyboard'",
+        "default_apps": "Open Settings > Search 'Default apps'",
+        "developer": "Open Settings > Search 'Developer options'"
+      }
+    },
+    {
+      "profile_id": "OEM-TCL-UI",
+      "manufacturer": "TCL",
+      "aliases": [
+        "tcl"
+      ],
+      "software_family": "TCL UI / Android variants",
+      "profile_notes": "Phones/tablets and carrier models.",
+      "gms_available": true,
+      "form_factors": [
+        "phone",
+        "tablet"
+      ],
+      "coverage_tier": "C_OS_BASELINE_VERIFIED",
+      "verification_status": "doc_referenced",
+      "is_path_verified": false,
+      "settings_paths": {
+        "battery": "Open Settings > Search 'Battery Saver' or 'Battery'",
+        "storage": "Open Settings > Search 'Storage'",
+        "app_cache": "Open Settings > Search 'Apps' > Select App > Storage > Clear Cache",
+        "network": "Open Settings > Search 'Wi-Fi' or 'Network'",
+        "notifications": "Open Settings > Search 'Notifications'",
+        "display": "Open Settings > Search 'Display' or 'Screen timeout'",
+        "sound": "Open Settings > Search 'Sound' or 'Volume'",
+        "bluetooth": "Open Settings > Search 'Bluetooth'",
+        "system_update": "Open Settings > Search 'System update' or 'Software update'",
+        "accessibility": "Open Settings > Search 'Accessibility'",
+        "location": "Open Settings > Search 'Location'",
+        "security": "Open Settings > Search 'Security' or 'Privacy'",
+        "accounts": "Open Settings > Search 'Accounts' or 'Sync'",
+        "language": "Open Settings > Search 'Languages' or 'Keyboard'",
+        "default_apps": "Open Settings > Search 'Default apps'",
+        "developer": "Open Settings > Search 'Developer options'"
+      }
+    },
+    {
+      "profile_id": "OEM-ZTE-MYOS",
+      "manufacturer": "ZTE / nubia / RedMagic",
+      "aliases": [
+        "zte",
+        "nubia",
+        "redmagic"
+      ],
+      "software_family": "MyOS / nubia UI / RedMagic OS",
+      "profile_notes": "Gaming/performance menus need exact model.",
+      "gms_available": true,
+      "form_factors": [
+        "phone"
+      ],
+      "coverage_tier": "D_UNKNOWN",
+      "verification_status": "doc_referenced",
+      "is_path_verified": false,
+      "settings_paths": {
+        "battery": "Open Settings > Search 'Battery Saver' or 'Battery'",
+        "storage": "Open Settings > Search 'Storage'",
+        "app_cache": "Open Settings > Search 'Apps' > Select App > Storage > Clear Cache",
+        "network": "Open Settings > Search 'Wi-Fi' or 'Network'",
+        "notifications": "Open Settings > Search 'Notifications'",
+        "display": "Open Settings > Search 'Display' or 'Screen timeout'",
+        "sound": "Open Settings > Search 'Sound' or 'Volume'",
+        "bluetooth": "Open Settings > Search 'Bluetooth'",
+        "system_update": "Open Settings > Search 'System update' or 'Software update'",
+        "accessibility": "Open Settings > Search 'Accessibility'",
+        "location": "Open Settings > Search 'Location'",
+        "security": "Open Settings > Search 'Security' or 'Privacy'",
+        "accounts": "Open Settings > Search 'Accounts' or 'Sync'",
+        "language": "Open Settings > Search 'Languages' or 'Keyboard'",
+        "default_apps": "Open Settings > Search 'Default apps'",
+        "developer": "Open Settings > Search 'Developer options'"
+      }
+    },
+    {
+      "profile_id": "OEM-SHARP-AQUOS",
+      "manufacturer": "Sharp",
+      "aliases": [
+        "sharp",
+        "aquos"
+      ],
+      "software_family": "AQUOS UI / Android variants",
+      "profile_notes": "Japan carrier and regional builds.",
+      "gms_available": true,
+      "form_factors": [
+        "phone"
+      ],
+      "coverage_tier": "D_UNKNOWN",
+      "verification_status": "doc_referenced",
+      "is_path_verified": false,
+      "settings_paths": {
+        "battery": "Open Settings > Search 'Battery Saver' or 'Battery'",
+        "storage": "Open Settings > Search 'Storage'",
+        "app_cache": "Open Settings > Search 'Apps' > Select App > Storage > Clear Cache",
+        "network": "Open Settings > Search 'Wi-Fi' or 'Network'",
+        "notifications": "Open Settings > Search 'Notifications'",
+        "display": "Open Settings > Search 'Display' or 'Screen timeout'",
+        "sound": "Open Settings > Search 'Sound' or 'Volume'",
+        "bluetooth": "Open Settings > Search 'Bluetooth'",
+        "system_update": "Open Settings > Search 'System update' or 'Software update'",
+        "accessibility": "Open Settings > Search 'Accessibility'",
+        "location": "Open Settings > Search 'Location'",
+        "security": "Open Settings > Search 'Security' or 'Privacy'",
+        "accounts": "Open Settings > Search 'Accounts' or 'Sync'",
+        "language": "Open Settings > Search 'Languages' or 'Keyboard'",
+        "default_apps": "Open Settings > Search 'Default apps'",
+        "developer": "Open Settings > Search 'Developer options'"
+      }
+    },
+    {
+      "profile_id": "OEM-FAIRPHONE",
+      "manufacturer": "Fairphone",
+      "aliases": [
+        "fairphone"
+      ],
+      "software_family": "Fairphone software",
+      "profile_notes": "Model generation and support policy.",
+      "gms_available": true,
+      "form_factors": [
+        "phone"
+      ],
+      "coverage_tier": "C_OS_BASELINE_VERIFIED",
+      "verification_status": "doc_referenced",
+      "is_path_verified": false,
+      "settings_paths": {
+        "battery": "Open Settings > Search 'Battery Saver' or 'Battery'",
+        "storage": "Open Settings > Search 'Storage'",
+        "app_cache": "Open Settings > Search 'Apps' > Select App > Storage > Clear Cache",
+        "network": "Open Settings > Search 'Wi-Fi' or 'Network'",
+        "notifications": "Open Settings > Search 'Notifications'",
+        "display": "Open Settings > Search 'Display' or 'Screen timeout'",
+        "sound": "Open Settings > Search 'Sound' or 'Volume'",
+        "bluetooth": "Open Settings > Search 'Bluetooth'",
+        "system_update": "Open Settings > Search 'System update' or 'Software update'",
+        "accessibility": "Open Settings > Search 'Accessibility'",
+        "location": "Open Settings > Search 'Location'",
+        "security": "Open Settings > Search 'Security' or 'Privacy'",
+        "accounts": "Open Settings > Search 'Accounts' or 'Sync'",
+        "language": "Open Settings > Search 'Languages' or 'Keyboard'",
+        "default_apps": "Open Settings > Search 'Default apps'",
+        "developer": "Open Settings > Search 'Developer options'"
+      }
+    },
+    {
+      "profile_id": "OEM-KYOCERA-RUGGED",
+      "manufacturer": "Kyocera",
+      "aliases": [
+        "kyocera"
+      ],
+      "software_family": "DuraForce / rugged UI",
+      "profile_notes": "Rugged model and enterprise profile.",
+      "gms_available": true,
+      "form_factors": [
+        "rugged",
+        "phone"
+      ],
+      "coverage_tier": "D_UNKNOWN",
+      "verification_status": "doc_referenced",
+      "is_path_verified": false,
+      "settings_paths": {
+        "battery": "Open Settings > Search 'Battery Saver' or 'Battery'",
+        "storage": "Open Settings > Search 'Storage'",
+        "app_cache": "Open Settings > Search 'Apps' > Select App > Storage > Clear Cache",
+        "network": "Open Settings > Search 'Wi-Fi' or 'Network'",
+        "notifications": "Open Settings > Search 'Notifications'",
+        "display": "Open Settings > Search 'Display' or 'Screen timeout'",
+        "sound": "Open Settings > Search 'Sound' or 'Volume'",
+        "bluetooth": "Open Settings > Search 'Bluetooth'",
+        "system_update": "Open Settings > Search 'System update' or 'Software update'",
+        "accessibility": "Open Settings > Search 'Accessibility'",
+        "location": "Open Settings > Search 'Location'",
+        "security": "Open Settings > Search 'Security' or 'Privacy'",
+        "accounts": "Open Settings > Search 'Accounts' or 'Sync'",
+        "language": "Open Settings > Search 'Languages' or 'Keyboard'",
+        "default_apps": "Open Settings > Search 'Default apps'",
+        "developer": "Open Settings > Search 'Developer options'"
+      }
+    },
+    {
+      "profile_id": "OEM-RUGGED-VENDOR",
+      "manufacturer": "Ulefone / Doogee / Blackview / Oukitel",
+      "aliases": [
+        "ulefone",
+        "doogee",
+        "blackview",
+        "oukitel"
+      ],
+      "software_family": "Vendor Android builds",
+      "profile_notes": "Large model range; exact firmware validation.",
+      "gms_available": true,
+      "form_factors": [
+        "rugged",
+        "phone",
+        "tablet"
+      ],
+      "coverage_tier": "D_UNKNOWN",
+      "verification_status": "doc_referenced",
+      "is_path_verified": false,
+      "settings_paths": {
+        "battery": "Open Settings > Search 'Battery Saver' or 'Battery'",
+        "storage": "Open Settings > Search 'Storage'",
+        "app_cache": "Open Settings > Search 'Apps' > Select App > Storage > Clear Cache",
+        "network": "Open Settings > Search 'Wi-Fi' or 'Network'",
+        "notifications": "Open Settings > Search 'Notifications'",
+        "display": "Open Settings > Search 'Display' or 'Screen timeout'",
+        "sound": "Open Settings > Search 'Sound' or 'Volume'",
+        "bluetooth": "Open Settings > Search 'Bluetooth'",
+        "system_update": "Open Settings > Search 'System update' or 'Software update'",
+        "accessibility": "Open Settings > Search 'Accessibility'",
+        "location": "Open Settings > Search 'Location'",
+        "security": "Open Settings > Search 'Security' or 'Privacy'",
+        "accounts": "Open Settings > Search 'Accounts' or 'Sync'",
+        "language": "Open Settings > Search 'Languages' or 'Keyboard'",
+        "default_apps": "Open Settings > Search 'Default apps'",
+        "developer": "Open Settings > Search 'Developer options'"
+      }
+    },
+    {
+      "profile_id": "OEM-CROSSCALL-SONIM",
+      "manufacturer": "Crosscall / Sonim",
+      "aliases": [
+        "crosscall",
+        "sonim"
+      ],
+      "software_family": "Rugged Android",
+      "profile_notes": "Enterprise, push-to-talk and device controls.",
+      "gms_available": true,
+      "form_factors": [
+        "rugged",
+        "phone"
+      ],
+      "coverage_tier": "D_UNKNOWN",
+      "verification_status": "doc_referenced",
+      "is_path_verified": false,
+      "settings_paths": {
+        "battery": "Open Settings > Search 'Battery Saver' or 'Battery'",
+        "storage": "Open Settings > Search 'Storage'",
+        "app_cache": "Open Settings > Search 'Apps' > Select App > Storage > Clear Cache",
+        "network": "Open Settings > Search 'Wi-Fi' or 'Network'",
+        "notifications": "Open Settings > Search 'Notifications'",
+        "display": "Open Settings > Search 'Display' or 'Screen timeout'",
+        "sound": "Open Settings > Search 'Sound' or 'Volume'",
+        "bluetooth": "Open Settings > Search 'Bluetooth'",
+        "system_update": "Open Settings > Search 'System update' or 'Software update'",
+        "accessibility": "Open Settings > Search 'Accessibility'",
+        "location": "Open Settings > Search 'Location'",
+        "security": "Open Settings > Search 'Security' or 'Privacy'",
+        "accounts": "Open Settings > Search 'Accounts' or 'Sync'",
+        "language": "Open Settings > Search 'Languages' or 'Keyboard'",
+        "default_apps": "Open Settings > Search 'Default apps'",
+        "developer": "Open Settings > Search 'Developer options'"
+      }
+    },
+    {
+      "profile_id": "OEM-ENTERPRISE-ADMIN",
+      "manufacturer": "Zebra / Honeywell / Point Mobile / UROVO / Datalogic / Bluebird",
+      "aliases": [
+        "zebra",
+        "honeywell",
+        "point mobile",
+        "urovo",
+        "datalogic",
+        "bluebird"
+      ],
+      "software_family": "Enterprise Android",
+      "profile_notes": "Scanner, kiosk, OEMConfig and admin profiles.",
+      "gms_available": true,
+      "form_factors": [
+        "enterprise",
+        "rugged"
+      ],
+      "coverage_tier": "D_UNKNOWN",
+      "verification_status": "doc_referenced",
+      "is_path_verified": false,
+      "settings_paths": {
+        "battery": "Open Settings > Search 'Battery Saver' or 'Battery'",
+        "storage": "Open Settings > Search 'Storage'",
+        "app_cache": "Open Settings > Search 'Apps' > Select App > Storage > Clear Cache",
+        "network": "Open Settings > Search 'Wi-Fi' or 'Network'",
+        "notifications": "Open Settings > Search 'Notifications'",
+        "display": "Open Settings > Search 'Display' or 'Screen timeout'",
+        "sound": "Open Settings > Search 'Sound' or 'Volume'",
+        "bluetooth": "Open Settings > Search 'Bluetooth'",
+        "system_update": "Open Settings > Search 'System update' or 'Software update'",
+        "accessibility": "Open Settings > Search 'Accessibility'",
+        "location": "Open Settings > Search 'Location'",
+        "security": "Open Settings > Search 'Security' or 'Privacy'",
+        "accounts": "Open Settings > Search 'Accounts' or 'Sync'",
+        "language": "Open Settings > Search 'Languages' or 'Keyboard'",
+        "default_apps": "Open Settings > Search 'Default apps'",
+        "developer": "Open Settings > Search 'Developer options'"
+      }
+    },
+    {
+      "profile_id": "OEM-TABLET-POS-KIOSK",
+      "manufacturer": "Acer / Panasonic / Getac / Sunmi / iMin / Elo / Ascom",
+      "aliases": [
+        "acer",
+        "panasonic",
+        "getac",
+        "sunmi",
+        "imin",
+        "elo",
+        "ascom"
+      ],
+      "software_family": "Tablet, POS, rugged, kiosk",
+      "profile_notes": "Separate form factor and deployment profile.",
+      "gms_available": true,
+      "form_factors": [
+        "tablet",
+        "pos",
+        "kiosk",
+        "rugged"
+      ],
+      "coverage_tier": "D_UNKNOWN",
+      "verification_status": "doc_referenced",
+      "is_path_verified": false,
+      "settings_paths": {
+        "battery": "Open Settings > Search 'Battery Saver' or 'Battery'",
+        "storage": "Open Settings > Search 'Storage'",
+        "app_cache": "Open Settings > Search 'Apps' > Select App > Storage > Clear Cache",
+        "network": "Open Settings > Search 'Wi-Fi' or 'Network'",
+        "notifications": "Open Settings > Search 'Notifications'",
+        "display": "Open Settings > Search 'Display' or 'Screen timeout'",
+        "sound": "Open Settings > Search 'Sound' or 'Volume'",
+        "bluetooth": "Open Settings > Search 'Bluetooth'",
+        "system_update": "Open Settings > Search 'System update' or 'Software update'",
+        "accessibility": "Open Settings > Search 'Accessibility'",
+        "location": "Open Settings > Search 'Location'",
+        "security": "Open Settings > Search 'Security' or 'Privacy'",
+        "accounts": "Open Settings > Search 'Accounts' or 'Sync'",
+        "language": "Open Settings > Search 'Languages' or 'Keyboard'",
+        "default_apps": "Open Settings > Search 'Default apps'",
+        "developer": "Open Settings > Search 'Developer options'"
+      }
+    }
+  ],
+  "unsupported_form_factors": [
+    "Android TV / Google TV",
+    "Wear OS",
+    "Android Automotive",
+    "XR headsets",
+    "ChromeOS / Googlebooks"
+  ],
+  "privacy_pii_exclusions": [
+    "IMEI",
+    "Serial number",
+    "Phone number",
+    "Account IDs",
+    "OTP/Password/Banking screenshots"
+  ]
+}

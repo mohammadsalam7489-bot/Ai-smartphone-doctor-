@@ -1,0 +1,8 @@
+{
+  "name": "Smartphone Doctor",
+  "description": "AI-powered smartphone diagnostics and troubleshooting assistant that detects device issues, guides repairs, and executes real system tools safely.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
