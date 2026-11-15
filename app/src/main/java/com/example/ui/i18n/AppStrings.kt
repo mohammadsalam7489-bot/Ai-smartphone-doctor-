@@ -209,7 +209,14 @@ data class LocalizedStrings(
     val capTierPermissionLabel: String,
     val capTierPanelSettingsLabel: String,
     val capTierOsBlockedLabel: String,
-    val capTierHardwareLabel: String
+    val capTierHardwareLabel: String,
+    // Voice conversation mode & honest TTS attribution
+    val voiceModeLabel: String,
+    val textModeLabel: String,
+    val listeningLabel: String,
+    val tapToInterruptLabel: String,
+    val voicePermissionNeeded: String,
+    val voiceEngineNote: String
 )
 
 object AppStrings {
@@ -412,7 +419,13 @@ object AppStrings {
         capTierPermissionLabel = "2. PERMISSION-GATED AUTOMATION",
         capTierPanelSettingsLabel = "3. IN-APP PANEL / GUIDED SETTINGS",
         capTierOsBlockedLabel = "4. STRICTLY OS-SANDBOX BLOCKED",
-        capTierHardwareLabel = "5. HARDWARE / PHYSICAL SERVICE REQUIRED"
+        capTierHardwareLabel = "5. HARDWARE / PHYSICAL SERVICE REQUIRED",
+        voiceModeLabel = "Voice Mode",
+        textModeLabel = "Text Mode",
+        listeningLabel = "Listening...",
+        tapToInterruptLabel = "Speaking • Tap microphone to interrupt",
+        voicePermissionNeeded = "Microphone permission is needed for live voice conversation. Using system prompt fallback.",
+        voiceEngineNote = "Android Neural TTS"
     )
 
     val Hindi = LocalizedStrings(
@@ -614,7 +627,13 @@ object AppStrings {
         capTierPermissionLabel = "2. अनुमति-आधारित स्वचालित सुधार",
         capTierPanelSettingsLabel = "3. इन-ऐप पैनल / सिस्टम सेटिंग्स विकल्प",
         capTierOsBlockedLabel = "4. एंड्रॉइड सैंडबॉक्स द्वारा प्रतिबंधित",
-        capTierHardwareLabel = "5. हार्डवेयर / सर्विस केंद्र आवश्यक"
+        capTierHardwareLabel = "5. हार्डवेयर / सर्विस केंद्र आवश्यक",
+        voiceModeLabel = "वॉइस मोड",
+        textModeLabel = "टेक्स्ट मोड",
+        listeningLabel = "सुन रहा हूँ...",
+        tapToInterruptLabel = "बोल रहा है • रोकने के लिए माइक दबाएं",
+        voicePermissionNeeded = "लाइव आवाज़ से बात करने के लिए माइक्रोफ़ोन अनुमति चाहिए। सिस्टम वॉइस प्रॉम्प्ट उपयोग किया जा रहा है।",
+        voiceEngineNote = "एंड्रॉइड न्यूरल टीटीएस"
     )
 
     val Hinglish = English.copy(
@@ -659,7 +678,13 @@ object AppStrings {
         capTierPermissionLabel = "2. PERMISSION-GATED AUTOMATION",
         capTierPanelSettingsLabel = "3. IN-APP PANEL / GUIDED SETTINGS",
         capTierOsBlockedLabel = "4. STRICTLY OS-SANDBOX BLOCKED",
-        capTierHardwareLabel = "5. HARDWARE / SERVICE REQUIRED"
+        capTierHardwareLabel = "5. HARDWARE / SERVICE REQUIRED",
+        voiceModeLabel = "Voice Mode",
+        textModeLabel = "Text Mode",
+        listeningLabel = "Sun raha hoon...",
+        tapToInterruptLabel = "Bol raha hai • Interrupt karne ke liye mic dabayein",
+        voicePermissionNeeded = "Live voice chat ke liye microphone permission zaroori hai. System voice prompt use ho raha hai.",
+        voiceEngineNote = "Android Neural TTS"
     )
 
     fun forLanguage(language: String): LocalizedStrings {

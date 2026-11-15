@@ -20,6 +20,7 @@ import com.example.data.model.OemCompatibilityProfile
 import com.example.data.model.RepairPlan
 import com.example.data.repair.AutonomousRepairOrchestrator
 import com.example.data.repair.SafeRepairRegistry
+import com.example.util.AppCheckConfigStatus
 import com.google.firebase.Firebase
 import com.google.firebase.ai.ai
 import com.google.firebase.ai.type.Schema
@@ -50,7 +51,11 @@ data class DoctorResponse(
     val autonomousBundle: AutonomousRepairBundle? = null,
     val aiStatus: AiServiceStatus = AiServiceStatus.ONLINE_GEMINI,
     val aiStatusDetail: String? = null,
-    val responseLanguage: String = LanguageDetector.LANG_ENGLISH
+    val responseLanguage: String = LanguageDetector.LANG_ENGLISH,
+    val matchedProblemId: String? = null,
+    val matchedProblemTitle: String? = null,
+    val matchedCategory: String? = null,
+    val intentHandled: ConversationIntent = ConversationIntent.PROBLEM_REPORT
 )
 
 class AiDoctorService(
@@ -121,16 +126,37 @@ class AiDoctorService(
         screenshot: Bitmap? = null,
         conversationHistory: List<Pair<String, String>> = emptyList(),
         context: Context? = null,
-        language: String = LanguageDetector.LANG_ENGLISH
+        language: String = LanguageDetector.LANG_ENGLISH,
+        sessionContext: TroubleshootingSessionContext = TroubleshootingSessionContext()
     ): DoctorResponse = withContext(Dispatchers.IO) {
         if (context != null) {
             runCatching { KnowledgeRepository.ensureLoadedSynchronously(context) }
         }
 
         val effectiveLanguage = LanguageDetector.detectResponseLanguage(userProblem, language)
+        val intent = if (screenshot != null) {
+            ConversationIntent.PROBLEM_REPORT
+        } else {
+            ConversationContextManager.classifyIntent(userProblem, sessionContext)
+        }
+        val deviceLabel = "${vitals.brand} ${vitals.model}".trim().ifBlank { "Android Smartphone" }
+        val proxyBase = aiProxyUrl.trim().trimEnd('/')
+
+        // 1. Handle normal human-like small talk gracefully without forcing robotic diagnostic forms
+        if (intent == ConversationIntent.SMALL_TALK) {
+            return@withContext handleSmallTalkTurn(
+                userMessage = userProblem,
+                vitals = vitals,
+                deviceLabel = deviceLabel,
+                conversationHistory = conversationHistory,
+                effectiveLanguage = effectiveLanguage,
+                proxyBase = proxyBase
+            )
+        }
+
         val vitalsSummary = runCatching {
             RealDeviceDiagnostics.formatVitalsSummary(vitals, effectiveLanguage)
-        }.getOrDefault("Device: ${vitals.brand} ${vitals.model}, Android ${vitals.androidVersion}")
+        }.getOrDefault("Device: $deviceLabel, Android ${vitals.androidVersion}")
 
         val oemProfile = runCatching {
             DeviceCompatibilityEngine.resolveProfile(
@@ -142,9 +168,18 @@ class AiDoctorService(
             )
         }.getOrElse { DeviceCompatibilityEngine.getProfile() }
 
+        // For follow-up / clarify turns, anchor RAG lookup to active troubleshooting symptom when available
+        val effectiveRagQuery = when {
+            (intent == ConversationIntent.FOLLOW_UP_NOT_FIXED || intent == ConversationIntent.CLARIFY_EXPLANATION) &&
+                !sessionContext.lastSymptomQuery.isNullOrBlank() -> sessionContext.lastSymptomQuery
+            (intent == ConversationIntent.FOLLOW_UP_NOT_FIXED || intent == ConversationIntent.CLARIFY_EXPLANATION) &&
+                !sessionContext.activeProblemId.isNullOrBlank() -> sessionContext.activeProblemId
+            else -> userProblem
+        }
+
         val retrievalOutcome = runCatching {
             PlaybookRagRetriever.retrieveIssueOutcome(
-                query = userProblem,
+                query = effectiveRagQuery,
                 vitals = vitals,
                 context = context,
                 limit = 4
@@ -159,18 +194,22 @@ class AiDoctorService(
         } else if (retrievalOutcome.isAmbiguous) {
             "AMBIGUOUS COMPLAINT NOTICE: The user's complaint is too broad to select a specific AND-XX-YYY problem safely. Ask 2-3 focused clarifying questions FIRST before diagnosing or recommending invasive fixes.\nClarifying options: ${retrievalOutcome.clarifyingQuestions.joinToString(" | ")}"
         } else {
-            val pbMatches = PlaybookRagRetriever.retrieveRelevantPlaybooks(userProblem, vitals, limit = 3)
+            val pbMatches = PlaybookRagRetriever.retrieveRelevantPlaybooks(effectiveRagQuery, vitals, limit = 3)
             PlaybookRagRetriever.formatRagContextForPrompt(pbMatches, oemProfile)
         }
 
-        val validActionCatalog = SafeRepairRegistry.approvedActions.joinToString("\n") { action ->
-            val modeLabel = if (action.capability == AutomationCapability.NORMAL_API) {
-                "AUTO IN-APP"
-            } else {
-                "REQUIRES USER PERMISSION / SYSTEM SETTINGS (${action.capability.badgeLabel})"
+        val excludedIds = sessionContext.excludedActionIds
+        val validActionCatalog = SafeRepairRegistry.approvedActions
+            .filter { it.id !in excludedIds }
+            .ifEmpty { SafeRepairRegistry.approvedActions }
+            .joinToString("\n") { action ->
+                val modeLabel = if (action.capability == AutomationCapability.NORMAL_API) {
+                    "AUTO IN-APP"
+                } else {
+                    "REQUIRES USER PERMISSION / SYSTEM SETTINGS (${action.capability.badgeLabel})"
+                }
+                "- ${action.id}: ${action.title} [$modeLabel, ${action.riskClass.label}]"
             }
-            "- ${action.id}: ${action.title} [$modeLabel, ${action.riskClass.label}]"
-        }
 
         val oemContext = buildString {
             appendLine("Brand/OEM: ${oemProfile.oemName} (${oemProfile.osFlavor}) | ID: ${oemProfile.profileId}")
@@ -188,10 +227,11 @@ class AiDoctorService(
             oemContext = oemContext,
             conversationHistory = conversationHistory,
             effectiveLanguage = effectiveLanguage,
-            hasScreenshot = screenshot != null
+            hasScreenshot = screenshot != null,
+            intent = intent,
+            sessionContext = sessionContext
         )
 
-        val proxyBase = aiProxyUrl.trim().trimEnd('/')
         try {
             val (jsonString, modelUsed) = withTimeout(55_000L) {
                 if (proxyBase.isNotBlank()) {
@@ -223,7 +263,9 @@ class AiDoctorService(
                 language = effectiveLanguage,
                 modelUsed = modelUsed,
                 context = context,
-                userProblem = userProblem
+                userProblem = effectiveRagQuery,
+                sessionContext = sessionContext,
+                intent = intent
             )
         } catch (e: TimeoutCancellationException) {
             Log.e(TAG, "Cloud AI request timed out after 55s", e)
@@ -241,12 +283,15 @@ class AiDoctorService(
                 precomputedMatches = issueMatches,
                 isAmbiguousOverride = retrievalOutcome.isAmbiguous,
                 clarifyingQuestionsOverride = retrievalOutcome.clarifyingQuestions,
-                language = effectiveLanguage
+                language = effectiveLanguage,
+                sessionContext = sessionContext,
+                intentOverride = intent
             )
         } catch (e: CancellationException) {
             throw e
         } catch (t: Throwable) {
-            Log.e(TAG, "Cloud AI request failed safely (surfacing real error & fallback KB): ${t.localizedMessage}", t)
+            val appCheckDiag = AppCheckConfigStatus.summary()
+            Log.e(TAG, "Cloud AI request failed safely [$appCheckDiag] (surfacing real error & fallback KB): ${t.localizedMessage}", t)
             val rawDetail = (t.localizedMessage ?: t::class.java.simpleName).take(220)
             buildStructuredFallbackResponse(
                 userProblem = userProblem,
@@ -262,9 +307,91 @@ class AiDoctorService(
                 precomputedMatches = issueMatches,
                 isAmbiguousOverride = retrievalOutcome.isAmbiguous,
                 clarifyingQuestionsOverride = retrievalOutcome.clarifyingQuestions,
-                language = effectiveLanguage
+                language = effectiveLanguage,
+                sessionContext = sessionContext,
+                intentOverride = intent
             )
         }
+    }
+
+    private suspend fun handleSmallTalkTurn(
+        userMessage: String,
+        vitals: DeviceVitals,
+        deviceLabel: String,
+        conversationHistory: List<Pair<String, String>>,
+        effectiveLanguage: String,
+        proxyBase: String
+    ): DoctorResponse {
+        val langRule = when (effectiveLanguage) {
+            LanguageDetector.LANG_HINDI -> "Reply warmly in 100% pure Devanagari Hindi (शुद्ध देवनागरी हिंदी). No English sentences or Hinglish."
+            LanguageDetector.LANG_HINGLISH -> "Reply warmly in natural conversational Hinglish (Roman Hindi-English). Do NOT switch to formal English or Devanagari."
+            else -> "Reply warmly in natural, polite English with zero Hindi mixing."
+        }
+        val historyBlock = if (conversationHistory.isNotEmpty()) {
+            "RECENT CHAT:\n" + conversationHistory.takeLast(4).joinToString("\n") { (r, m) -> "$r: $m" } + "\n\n"
+        } else ""
+        val chatPrompt = """
+You are AI Smartphone Assistant (a helpful, polite, human-like Android assistant on $deviceLabel, Health Score ${vitals.healthScore}/100).
+$langRule
+The user sent casual conversation / greeting / thanks (NOT a repair form request).
+Respond naturally in 1-3 friendly sentences like a helpful human technician chatting politely. Do not dump diagnostic checklists or fake repair cards.
+$historyBlock
+USER: $userMessage
+        """.trimIndent()
+
+        if (proxyBase.isBlank()) {
+            val (cloudText, modelName) = runCatching {
+                withTimeout(15_000L) { callFirebaseConversational(chatPrompt) }
+            }.getOrDefault(null to SUPPORTED_GEMINI_MODELS.first())
+
+            if (!cloudText.isNullOrBlank()) {
+                return DoctorResponse(
+                    replyText = cloudText,
+                    actions = emptyList(),
+                    repairPlan = null,
+                    autonomousBundle = null,
+                    aiStatus = AiServiceStatus.ONLINE_GEMINI,
+                    aiStatusDetail = "Cloud AI ($modelName) • Conversational Mode",
+                    responseLanguage = effectiveLanguage,
+                    intentHandled = ConversationIntent.SMALL_TALK
+                )
+            }
+        }
+
+        return DoctorResponse(
+            replyText = ConversationContextManager.buildSmallTalkFallback(userMessage, effectiveLanguage, deviceLabel),
+            actions = emptyList(),
+            repairPlan = null,
+            autonomousBundle = null,
+            aiStatus = AiServiceStatus.ONLINE_GEMINI,
+            aiStatusDetail = "Assistant Ready • Conversational Mode ($deviceLabel)",
+            responseLanguage = effectiveLanguage,
+            intentHandled = ConversationIntent.SMALL_TALK
+        )
+    }
+
+    private suspend fun callFirebaseConversational(prompt: String): Pair<String?, String> {
+        val config = generationConfig {
+            temperature = 0.6f
+        }
+        for (modelName in SUPPORTED_GEMINI_MODELS) {
+            coroutineContext.ensureActive()
+            try {
+                val model = Firebase.ai.generativeModel(
+                    modelName = modelName,
+                    generationConfig = config
+                )
+                val response = withTimeout(10_000L) { model.generateContent(prompt) }
+                val txt = response.text?.trim()
+                if (!txt.isNullOrBlank()) return txt to modelName
+            } catch (c: CancellationException) {
+                throw c
+            } catch (t: Throwable) {
+                val msg = t.localizedMessage ?: t::class.java.simpleName
+                if (isFatalAuthOrAppCheckError(msg)) return null to modelName
+            }
+        }
+        return null to SUPPORTED_GEMINI_MODELS.first()
     }
 
     private fun buildPrompt(
@@ -275,7 +402,9 @@ class AiDoctorService(
         oemContext: String,
         conversationHistory: List<Pair<String, String>>,
         effectiveLanguage: String,
-        hasScreenshot: Boolean
+        hasScreenshot: Boolean,
+        intent: ConversationIntent = ConversationIntent.PROBLEM_REPORT,
+        sessionContext: TroubleshootingSessionContext = TroubleshootingSessionContext()
     ): String {
         val languageDirective = when (effectiveLanguage) {
             LanguageDetector.LANG_HINDI -> """
@@ -294,26 +423,50 @@ class AiDoctorService(
             """.trimIndent()
         }
 
+        val sessionMemoryBlock = buildString {
+            if (sessionContext.hasActiveProblem || sessionContext.excludedActionIds.isNotEmpty()) {
+                appendLine("ACTIVE TROUBLESHOOTING CONTEXT:")
+                sessionContext.activeProblemTitle?.let { appendLine("- Active Problem: $it (${sessionContext.activeProblemId ?: "custom"})") }
+                sessionContext.lastSymptomQuery?.let { appendLine("- Original User Symptom: $it") }
+                if (sessionContext.failedActionIds.isNotEmpty()) {
+                    appendLine("- FAILED / UNRESOLVED ACTIONS (DO NOT REPEAT): ${sessionContext.failedActionIds.joinToString(", ")}")
+                }
+                if (sessionContext.attemptedActionIds.isNotEmpty()) {
+                    appendLine("- ALREADY ATTEMPTED ACTIONS (PICK NEXT ALTERNATIVE): ${sessionContext.attemptedActionIds.joinToString(", ")}")
+                }
+                when (intent) {
+                    ConversationIntent.FOLLOW_UP_NOT_FIXED -> {
+                        appendLine("- TURN INTENT: FOLLOW-UP (User tried earlier advice and it STILL DID NOT FIX the issue). Acknowledge kindly and empathetically (e.g. reassure them we will try an easier next method step by step), NEVER repeat failed/attempted steps, and pick the next simplest effective alternative or honest Android restriction escalation.")
+                    }
+                    ConversationIntent.CLARIFY_EXPLANATION -> {
+                        appendLine("- TURN INTENT: CLARIFY EXPLANATION (User did not understand the previous reply). Explain calmly and warmly in simple everyday words, 1 small step at a time, without technical jargon.")
+                    }
+                    else -> {}
+                }
+                appendLine()
+            }
+        }
+
         val historyPrompt = if (conversationHistory.isNotEmpty()) {
-            "RECENT CONVERSATION:\n" + conversationHistory.takeLast(4).joinToString("\n") { (role, msg) ->
+            "RECENT CONVERSATION:\n" + conversationHistory.takeLast(6).joinToString("\n") { (role, msg) ->
                 "${if (role == "user") "User" else "Doctor"}: $msg"
             } + "\n\n"
         } else ""
 
         return """
-You are AI Smartphone Doctor, an evidence-based Android hardware & software diagnostic expert.
-CORE PHILOSOPHY: Diagnose first with verified telemetry. Explain clearly. Separate automatic in-app checks from actions needing user permission/settings. Verify outcome last.
+You are AI Smartphone Assistant, a warm, empathetic, evidence-based Android hardware & software troubleshooting expert.
+CORE PHILOSOPHY: Speak naturally like a caring human technician. Diagnose first with verified telemetry. Separate automatic in-app checks from actions needing user permission/settings. Verify outcome last, and remember tried/failed steps.
 
 STRICT RULES:
 1. TELEMETRY HONESTY: NEVER invent sensor numbers, RAM values, battery levels, or overheating claims. Use ONLY readings marked [VERIFIED] in telemetry below. If a reading says [NOT COLLECTED] or Unavailable, explicitly list it under `unverifiedAssumptions`, NOT `confirmedEvidence`, and never pretend the fault is confirmed without evidence.
 2. EVIDENCE VS CAUSES: Clearly distinguish confirmed telemetry evidence (`confirmedEvidence`) from suspected root causes (`possibleCauses`).
-3. CLARIFY WHEN VAGUE: If the user's complaint is broad or marked AMBIGUOUS COMPLAINT NOTICE, set `confidenceLevel` to "Low", `matchedProblemId` to "CLARIFY-REQUIRED", and ask focused `diagnosticQuestions` first.
-4. AUTONOMOUS EXECUTION OVER MANUAL LECTURES: Choose `recommendedActionIds` ONLY from APPROVED ACTION CATALOG below. Whenever an `AUTO IN-APP` executor handles a step (e.g., own cache & stale APK purge, DNS/captive-portal audit, audio routing/volume fix, RAM trim, thermal audit, or 30s timeout/brightness with WRITE_SETTINGS), NEVER tell the user to manually do that step — include its ID and tell the user to authorize the Autonomous Repair Plan card below. For OS-sandboxed steps (3rd-party cache, force-stop, Wi-Fi/Data radio toggles), explain the Android restriction honestly and attach the guided Settings action.
+3. CLARIFY WHEN VAGUE: If the user's complaint is broad or marked AMBIGUOUS COMPLAINT NOTICE (and no active problem context exists), set `confidenceLevel` to "Low", `matchedProblemId` to "CLARIFY-REQUIRED", and ask focused `diagnosticQuestions` first.
+4. AUTONOMOUS EXECUTION OVER MANUAL LECTURES: Choose `recommendedActionIds` ONLY from APPROVED ACTION CATALOG below (and never repeat failed actions). Whenever an `AUTO IN-APP` executor handles a step, tell the user cleanly and include its ID so the Autonomous Repair Plan card runs it. For OS-sandboxed steps (3rd-party cache, force-stop, Wi-Fi/Data radio toggles), explain the Android restriction honestly and offer the easiest alternative.
 5. LANGUAGE CONSISTENCY:
 $languageDirective
-6. SAFETY: Never instruct silent third-party cache wipes or hidden background changes, and never claim a problem is repaired when only instructions or Settings links were provided. Never cite internal KB codes (like AND-05-001) or severity tags (P2/R1) inside `replyText`.
+6. SAFETY & HUMAN TONE: Never instruct silent third-party cache wipes or claim a problem is repaired when only instructions or Settings links were provided. Never cite internal KB codes (like AND-05-001) or severity tags (P2/R1) inside `replyText`.
 
-DEVICE & COMPATIBILITY PROFILE:
+${sessionMemoryBlock}DEVICE & COMPATIBILITY PROFILE:
 $oemContext
 
 $ragContext
@@ -325,7 +478,7 @@ $historyPrompt
 VERIFIED LIVE DEVICE TELEMETRY:
 $vitalsSummary
 
-USER PROBLEM:
+USER MESSAGE:
 $userProblem
 ${if (hasScreenshot) "(User attached a device screenshot — analyze visible error messages, settings screens, or battery/storage charts without exposing sensitive personal data.)" else ""}
         """.trimIndent()
@@ -378,8 +531,9 @@ ${if (hasScreenshot) "(User attached a device screenshot — analyze visible err
                 throw cancel
             } catch (t: Throwable) {
                 val msg = t.localizedMessage ?: t::class.java.simpleName
-                lastError = "$modelName: $msg"
-                Log.w(TAG, "Firebase AI call failed for $modelName: $msg")
+                val diag = AppCheckConfigStatus.summary()
+                lastError = "$modelName: $msg ($diag)"
+                Log.w(TAG, "Firebase AI call failed for $modelName [$diag]: $msg")
                 if (isFatalAuthOrAppCheckError(msg)) {
                     throw IllegalStateException(lastError, t)
                 }
@@ -485,7 +639,9 @@ ${if (hasScreenshot) "(User attached a device screenshot — analyze visible err
         language: String = LanguageDetector.LANG_ENGLISH,
         modelUsed: String = SUPPORTED_GEMINI_MODELS.first(),
         context: Context? = null,
-        userProblem: String = ""
+        userProblem: String = "",
+        sessionContext: TroubleshootingSessionContext = TroubleshootingSessionContext(),
+        intent: ConversationIntent = ConversationIntent.PROBLEM_REPORT
     ): DoctorResponse {
         val cleanJson = stripMarkdownJsonFences(jsonString)
         val json = JSONObject(cleanJson)
@@ -507,7 +663,7 @@ ${if (hasScreenshot) "(User attached a device screenshot — analyze visible err
         val legacyPlaybook = if (issueRecord == null) PlaybookRagRetriever.findById(matchedId) else null
 
         val actionIds = jsonArrayToList(json.optJSONArray("recommendedActionIds"))
-        val validatedActions = actionIds
+        val rawValidated = actionIds
             .mapNotNull { SafeRepairRegistry.findAction(it) }
             .distinctBy { it.id }
             .ifEmpty {
@@ -518,6 +674,24 @@ ${if (hasScreenshot) "(User attached a device screenshot — analyze visible err
                         ?: legacyPlaybook?.automaticActionIds?.mapNotNull { SafeRepairRegistry.findAction(it) }.orEmpty()
                 }
             }
+        val excludedIds = sessionContext.excludedActionIds
+        val validatedActions = if (excludedIds.isNotEmpty() && rawValidated.isNotEmpty()) {
+            val nonExcluded = rawValidated.filter { it.id !in excludedIds }
+            if (nonExcluded.isNotEmpty()) {
+                nonExcluded
+            } else {
+                listOfNotNull(
+                    com.example.data.repair.RepairVerificationEngine.selectNextSafeAlternative(
+                        failedOrCurrentActionId = rawValidated.first().id,
+                        playbook = legacyPlaybook,
+                        alreadyTriedActionIds = excludedIds,
+                        issueId = issueRecord?.problemId
+                    )
+                )
+            }
+        } else {
+            rawValidated
+        }
 
         val resolvedPath = issueRecord?.let {
             DeviceCompatibilityEngine.resolveSettingsPath(it.oemSettingsKey, oemProfile).resolvedPath
@@ -631,13 +805,18 @@ ${if (hasScreenshot) "(User attached a device screenshot — analyze visible err
             autonomousBundle = bundle,
             aiStatus = AiServiceStatus.ONLINE_GEMINI,
             aiStatusDetail = "Cloud AI ($modelUsed) • Verified Telemetry + KB RAG (${oemProfile.oemName})",
-            responseLanguage = effectiveLanguage
+            responseLanguage = effectiveLanguage,
+            matchedProblemId = issueRecord?.problemId ?: matchedId,
+            matchedProblemTitle = plan.problemTitle,
+            matchedCategory = issueRecord?.categoryName,
+            intentHandled = intent
         )
     }
 
     /**
      * Structured 466-Issue KB + Compatibility RAG Fallback Engine.
-     * Respects Hindi / Hinglish / English language consistency and NEVER emits unverified telemetry numbers.
+     * Respects Hindi / Hinglish / English language consistency, remembers tried/failed actions,
+     * and responds naturally on follow-up or clarification turns.
      */
     fun buildStructuredFallbackResponse(
         userProblem: String,
@@ -649,16 +828,41 @@ ${if (hasScreenshot) "(User attached a device screenshot — analyze visible err
         precomputedMatches: List<IssueRagMatch>? = null,
         isAmbiguousOverride: Boolean? = null,
         clarifyingQuestionsOverride: List<String>? = null,
-        language: String = LanguageDetector.LANG_ENGLISH
+        language: String = LanguageDetector.LANG_ENGLISH,
+        sessionContext: TroubleshootingSessionContext = TroubleshootingSessionContext(),
+        intentOverride: ConversationIntent? = null
     ): DoctorResponse {
         if (context != null) {
             runCatching { KnowledgeRepository.ensureLoadedSynchronously(context) }
         }
         val effectiveLanguage = LanguageDetector.detectResponseLanguage(userProblem, language)
+        val intent = intentOverride ?: ConversationContextManager.classifyIntent(userProblem, sessionContext)
+        val deviceLabel = "${vitals.brand} ${vitals.model}".trim().ifBlank { "Android Smartphone" }
+
+        if (intent == ConversationIntent.SMALL_TALK) {
+            return DoctorResponse(
+                replyText = ConversationContextManager.buildSmallTalkFallback(userProblem, effectiveLanguage, deviceLabel),
+                actions = emptyList(),
+                repairPlan = null,
+                autonomousBundle = null,
+                aiStatus = AiServiceStatus.ONLINE_GEMINI,
+                aiStatusDetail = "Assistant Ready • Conversational Mode ($deviceLabel)",
+                responseLanguage = effectiveLanguage,
+                intentHandled = ConversationIntent.SMALL_TALK
+            )
+        }
+
+        val effectiveQuery = when {
+            (intent == ConversationIntent.FOLLOW_UP_NOT_FIXED || intent == ConversationIntent.CLARIFY_EXPLANATION) &&
+                !sessionContext.lastSymptomQuery.isNullOrBlank() -> sessionContext.lastSymptomQuery
+            (intent == ConversationIntent.FOLLOW_UP_NOT_FIXED || intent == ConversationIntent.CLARIFY_EXPLANATION) &&
+                !sessionContext.activeProblemId.isNullOrBlank() -> sessionContext.activeProblemId
+            else -> userProblem
+        }
 
         val outcome = if (precomputedMatches == null) {
             PlaybookRagRetriever.retrieveIssueOutcome(
-                query = userProblem,
+                query = effectiveQuery,
                 vitals = vitals,
                 context = context,
                 limit = 3
@@ -767,25 +971,195 @@ Meanwhile, you can run the read-only automatic checks below or tap Retry to reco
                 ),
                 aiStatus = status,
                 aiStatusDetail = statusDetail,
-                responseLanguage = effectiveLanguage
+                responseLanguage = effectiveLanguage,
+                matchedProblemId = "CLARIFY-REQUIRED",
+                matchedProblemTitle = "Clarification Needed",
+                intentHandled = intent
             )
         }
 
         val topIssueMatch = outcome.matches.firstOrNull()
         if (topIssueMatch != null) {
             val issue = topIssueMatch.issue
-            val actions = topIssueMatch.allowedActions.ifEmpty {
+            val baseActions = topIssueMatch.allowedActions.ifEmpty {
                 issue.automaticActionIds.mapNotNull { SafeRepairRegistry.findAction(it) }.distinctBy { it.id }
+            }
+            val excludedIds = sessionContext.excludedActionIds
+            val filteredActions = if (excludedIds.isNotEmpty()) {
+                val remaining = baseActions.filter { it.id !in excludedIds }
+                if (remaining.isNotEmpty()) {
+                    remaining
+                } else {
+                    listOfNotNull(
+                        com.example.data.repair.RepairVerificationEngine.selectNextSafeAlternative(
+                            failedOrCurrentActionId = baseActions.firstOrNull()?.id ?: "",
+                            playbook = null,
+                            alreadyTriedActionIds = excludedIds,
+                            issueId = issue.problemId
+                        )
+                    )
+                }
+            } else {
+                baseActions
             }
 
             val telemetryLine = buildConciseVerifiedLine(vitals, effectiveLanguage)
+            val allSolutionsHi = LocalizedDiagnosticFormatter.buildHindiFallbackSteps(issue, topIssueMatch.resolvedSettingsPath)
+            val allSolutionsEn = issue.solutions.ifEmpty {
+                listOf("Open ${topIssueMatch.resolvedSettingsPath} and verify settings safely.")
+            }
 
-            val reply = when (effectiveLanguage) {
-                LanguageDetector.LANG_HINDI -> {
-                    val hiTitle = LocalizedDiagnosticFormatter.buildHindiIssueSummaryTitle(issue)
-                    val hiSteps = LocalizedDiagnosticFormatter.buildHindiFallbackSteps(issue, topIssueMatch.resolvedSettingsPath)
-                    val firstHiQuestion = LocalizedDiagnosticFormatter.localizeHindiQuestions(issue).firstOrNull()
-                    """
+            // Pick rotated/next untried step chunk on follow-up turns so user doesn't see identical instructions repeated
+            val stepOffset = if (intent == ConversationIntent.FOLLOW_UP_NOT_FIXED) {
+                (sessionContext.followUpStepOffset + 1).coerceAtLeast(1)
+            } else {
+                0
+            }
+
+            fun selectProgressedSteps(steps: List<String>): Pair<List<String>, Boolean> {
+                if (steps.size <= 1 || stepOffset == 0) return steps to false
+                val startIdx = (stepOffset * 2) % steps.size
+                val remaining = steps.drop(stepOffset * 2)
+                return if (remaining.isNotEmpty()) {
+                    remaining to false
+                } else {
+                    // All software steps exhausted — include honest escalation/Safe Mode guidance
+                    listOf(steps[startIdx]) to true
+                }
+            }
+
+            val reply = when {
+                intent == ConversationIntent.CLARIFY_EXPLANATION -> {
+                    when (effectiveLanguage) {
+                        LanguageDetector.LANG_HINDI -> {
+                            val hiTitle = LocalizedDiagnosticFormatter.buildHindiIssueSummaryTitle(issue)
+                            val simpleSteps = allSolutionsHi.take(2)
+                            """
+बिल्कुल, कोई चिंता नहीं! मैं **"$hiTitle"** को बिल्कुल सरल शब्दों में समझाता हूँ:
+
+1. आसान शब्द में बात यह है: पहले सुरक्षित जांच से देखते हैं कि समस्या सेटिंग्स से है या बैकग्राउंड ऐप से।
+2. पहला आसान काम: ${simpleSteps.firstOrNull() ?: topIssueMatch.resolvedSettingsPath}
+${if (simpleSteps.size > 1) "3. दूसरा कदम: ${simpleSteps[1]}" else ""}
+
+*(स्थानीय सहायक मोड — ऊपर क्लाउड एआई के लिए पुनः प्रयास भी कर सकते हैं।)* अगर चाहें तो बताएं कि इनमें से किस चरण पर मदद चाहिए।
+                            """.trimIndent()
+                        }
+                        LanguageDetector.LANG_HINGLISH -> {
+                            val simpleSteps = allSolutionsEn.take(2)
+                            """
+Koi baat nahi! Main **"${issue.canonicalProblemName}"** ko bilkul simple language mein step-by-step samjhata hoon:
+
+1. Simple matlab yeh hai ki pehle hum bina kisi risk ke check karenge ki setting ya background app ki wajah se toh issue nahi aa raha.
+2. Pehla aasan step: ${simpleSteps.firstOrNull() ?: topIssueMatch.resolvedSettingsPath}
+${if (simpleSteps.size > 1) "3. Doosra step: ${simpleSteps[1]}" else ""}
+
+*(Cloud AI abhi offline mode mein hai — aap upar Retry kar sakte hain.)* Batayein, kya ab yeh step clear hua?
+                            """.trimIndent()
+                        }
+                        else -> {
+                            val simpleSteps = allSolutionsEn.take(2)
+                            """
+Of course! Let me explain **"${issue.canonicalProblemName}"** in plain, simple steps:
+
+1. Simply put: we check the safest setting or background cause first without changing any personal data.
+2. Step 1 (Easiest check): ${simpleSteps.firstOrNull() ?: topIssueMatch.resolvedSettingsPath}
+${if (simpleSteps.size > 1) "3. Step 2: ${simpleSteps[1]}" else ""}
+
+*(Cloud AI offline fallback — tap Retry anytime.)* Tell me which part felt unclear and I will walk you through it slowly.
+                            """.trimIndent()
+                        }
+                    }
+                }
+                intent == ConversationIntent.FOLLOW_UP_NOT_FIXED -> {
+                    when (effectiveLanguage) {
+                        LanguageDetector.LANG_HINDI -> {
+                            val hiTitle = LocalizedDiagnosticFormatter.buildHindiIssueSummaryTitle(issue)
+                            val (nextSteps, exhausted) = selectProgressedSteps(allSolutionsHi)
+                            val nextAction = filteredActions.firstOrNull()?.let {
+                                LocalizedDiagnosticFormatter.localizeAction(it, effectiveLanguage).title
+                            }
+                            buildString {
+                                appendLine("कोई बात नहीं! इस बार हम **\"$hiTitle\"** के लिए एक नया और आसान तरीका आज़माते हैं। मैं आपको एक-एक कदम समझाऊंगा।")
+                                appendLine()
+                                appendLine(telemetryLine)
+                                appendLine()
+                                appendLine("**अगला आसान समाधान (पिछले चरण दोहराए बिना):**")
+                                nextSteps.forEachIndexed { idx, step ->
+                                    appendLine("${idx + 1}. $step")
+                                }
+                                if (nextAction != null) {
+                                    appendLine()
+                                    appendLine("• आप नीचे दिया नया विकल्प **$nextAction** भी सीधे चला सकते हैं।")
+                                }
+                                if (exhausted) {
+                                    appendLine()
+                                    appendLine("• *नोट:* पिछले सॉफ्टवेयर कदमों से समाधान नहीं मिला, इसलिए अब फोन को सेफ मोड में जाँचें या अधिकृत सर्विस सेंटर में हार्डवेयर दिखवाना सबसे सुरक्षित रहेगा। *(स्थानीय ज्ञानकोश मोड)*")
+                                } else {
+                                    appendLine()
+                                    append("*(स्थानीय ज्ञानकोश मोड — क्लाउड एआई उपलब्ध नहीं)*")
+                                }
+                            }.trim()
+                        }
+                        LanguageDetector.LANG_HINGLISH -> {
+                            val (nextSteps, exhausted) = selectProgressedSteps(allSolutionsEn)
+                            val nextAction = filteredActions.firstOrNull()?.let {
+                                LocalizedDiagnosticFormatter.localizeAction(it, effectiveLanguage).title
+                            }
+                            buildString {
+                                appendLine("Koi baat nahi! Is baar hum **\"${issue.canonicalProblemName}\"** ke liye ek aur aasan tareeka try karte hain. Main aapko ek-ek step samjhaunga.")
+                                appendLine()
+                                appendLine(telemetryLine)
+                                appendLine()
+                                appendLine("**Agla Easy Solution (Bina failed steps repeat kiye):**")
+                                nextSteps.forEachIndexed { idx, step ->
+                                    appendLine("${idx + 1}. $step")
+                                }
+                                if (nextAction != null) {
+                                    appendLine()
+                                    appendLine("• Neeche diya naya option **$nextAction** try karein.")
+                                }
+                                if (exhausted) {
+                                    appendLine()
+                                    appendLine("• *Honest Update:* Pehle ke software steps se fix nahi hua, toh Safe Mode test ya service center inspection best rahega. *(Cloud AI abhi unavailable hai)*")
+                                } else {
+                                    appendLine()
+                                    append("*(Cloud AI abhi unavailable hai — Next Verified KB Step)*")
+                                }
+                            }.trim()
+                        }
+                        else -> {
+                            val (nextSteps, exhausted) = selectProgressedSteps(allSolutionsEn)
+                            val nextAction = filteredActions.firstOrNull()?.title
+                            buildString {
+                                appendLine("No problem at all — since the earlier step didn't fix **\"${issue.canonicalProblemName}\"**, let's try the next easiest method step by step.")
+                                appendLine()
+                                appendLine(telemetryLine)
+                                appendLine()
+                                appendLine("**Practical Safe Solutions (Next Step, No Repeated Failed Steps):**")
+                                nextSteps.forEachIndexed { idx, step ->
+                                    appendLine("${idx + 1}. $step")
+                                }
+                                if (nextAction != null) {
+                                    appendLine()
+                                    appendLine("• Try the untried action card below: **$nextAction**.")
+                                }
+                                if (exhausted) {
+                                    appendLine()
+                                    appendLine("• *Honest Note:* Earlier software steps didn't resolve it, so testing in Safe Mode or an authorized service check is recommended. *(Cloud AI unavailable)*")
+                                } else {
+                                    appendLine()
+                                    append("*(Offline KB Mode — Cloud AI unavailable)*")
+                                }
+                            }.trim()
+                        }
+                    }
+                }
+                else -> when (effectiveLanguage) {
+                    LanguageDetector.LANG_HINDI -> {
+                        val hiTitle = LocalizedDiagnosticFormatter.buildHindiIssueSummaryTitle(issue)
+                        val hiSteps = allSolutionsHi
+                        val firstHiQuestion = LocalizedDiagnosticFormatter.localizeHindiQuestions(issue).firstOrNull()
+                        """
 नमस्ते! आपके **${vitals.brand} ${vitals.model}** की सत्यापित टेलीमेट्री जाँच पूरी हो गई है। *(स्थानीय ज्ञानकोश मोड — क्लाउड एआई उपलब्ध नहीं)*
 
 **संभावित समस्या क्षेत्र:** $hiTitle
@@ -795,12 +1169,12 @@ $telemetryLine
 ${hiSteps.mapIndexed { i, s -> "${i + 1}. $s" }.joinToString("\n")}
 
 ${if (firstHiQuestion != null) "**पुष्टि प्रश्न:** $firstHiQuestion\n\n" else ""}नीचे दिए कार्यों में **स्वचालित इन-ऐप जाँच** और **उपयोगकर्ता अनुमति / सिस्टम सेटिंग्स** स्पष्ट रूप से अलग दिखाए गए हैं। ऊपर क्लाउड एआई के लिए **पुनः प्रयास** भी उपलब्ध है।
-                    """.trimIndent()
-                }
-                LanguageDetector.LANG_HINGLISH -> {
-                    val steps = issue.solutions
-                    val firstQ = issue.diagnosticQuestions.firstOrNull()
-                    """
+                        """.trimIndent()
+                    }
+                    LanguageDetector.LANG_HINGLISH -> {
+                        val steps = allSolutionsEn
+                        val firstQ = issue.diagnosticQuestions.firstOrNull()
+                        """
 Namaste! Aapke **${vitals.brand} ${vitals.model}** ki verified telemetry check ho gayi hai. *(Offline KB Mode — Cloud AI abhi unavailable hai)*
 
 **Possible Issue:** ${issue.canonicalProblemName} (${issue.categoryName})
@@ -810,21 +1184,22 @@ $telemetryLine
 ${steps.mapIndexed { i, s -> "${i + 1}. $s" }.joinToString("\n")}
 
 ${if (firstQ != null) "**Ek Chhota Sawal:** $firstQ\n\n" else ""}Neeche diye gaye cards mein **Automatic In-App Actions** aur **Permission / Settings Required** alag-alag dikhaye gaye hain. Aap upar **Retry** bhi kar sakte hain.
-                    """.trimIndent()
-                }
-                else -> {
-                    val firstQuestion = issue.diagnosticQuestions.firstOrNull()
-                    """
+                        """.trimIndent()
+                    }
+                    else -> {
+                        val firstQuestion = issue.diagnosticQuestions.firstOrNull()
+                        """
 Hello! Telemetry triage for your **${vitals.brand} ${vitals.model}** is complete. *(Offline KB Mode — Cloud AI unavailable)*
 
 **Possible Issue Match:** ${issue.canonicalProblemName} (${issue.categoryName})
 $telemetryLine
 
 **Practical Safe Solutions:**
-${issue.solutions.mapIndexed { i, s -> "${i + 1}. $s" }.joinToString("\n")}
+${allSolutionsEn.mapIndexed { i, s -> "${i + 1}. $s" }.joinToString("\n")}
 
 ${if (firstQuestion != null) "**Confirming Question:** $firstQuestion\n\n" else ""}Below, automatic in-app diagnostics are clearly separated from actions that require your permission or opening System Settings.
-                    """.trimIndent()
+                        """.trimIndent()
+                    }
                 }
             }
 
@@ -871,9 +1246,9 @@ ${if (firstQuestion != null) "**Confirming Question:** $firstQuestion\n\n" else 
 
             val bundle = AutonomousRepairOrchestrator.buildBundle(
                 context = context,
-                userProblem = userProblem,
+                userProblem = effectiveQuery,
                 vitals = vitals,
-                recommendedActions = actions,
+                recommendedActions = filteredActions,
                 repairPlan = plan,
                 oemProfile = oemProfile,
                 language = effectiveLanguage
@@ -881,18 +1256,36 @@ ${if (firstQuestion != null) "**Confirming Question:** $firstQuestion\n\n" else 
 
             return DoctorResponse(
                 replyText = reply,
-                actions = actions,
+                actions = filteredActions,
                 repairPlan = plan,
                 autonomousBundle = bundle,
                 aiStatus = status,
                 aiStatusDetail = statusDetail,
-                responseLanguage = effectiveLanguage
+                responseLanguage = effectiveLanguage,
+                matchedProblemId = issue.problemId,
+                matchedProblemTitle = issue.canonicalProblemName,
+                matchedCategory = issue.categoryName,
+                intentHandled = intent
             )
         }
 
-        val matches = PlaybookRagRetriever.retrieveRelevantPlaybooks(userProblem, vitals, limit = 1)
+        val matches = PlaybookRagRetriever.retrieveRelevantPlaybooks(effectiveQuery, vitals, limit = 1)
         val topPlaybook = matches.first().playbook
-        val actions = topPlaybook.automaticActionIds.mapNotNull { SafeRepairRegistry.findAction(it) }.distinctBy { it.id }
+        val rawPbActions = topPlaybook.automaticActionIds.mapNotNull { SafeRepairRegistry.findAction(it) }.distinctBy { it.id }
+        val excludedIds = sessionContext.excludedActionIds
+        val actions = if (excludedIds.isNotEmpty()) {
+            rawPbActions.filter { it.id !in excludedIds }.ifEmpty {
+                listOfNotNull(
+                    com.example.data.repair.RepairVerificationEngine.selectNextSafeAlternative(
+                        failedOrCurrentActionId = rawPbActions.firstOrNull()?.id ?: "",
+                        playbook = topPlaybook,
+                        alreadyTriedActionIds = excludedIds
+                    )
+                )
+            }
+        } else {
+            rawPbActions
+        }
         val oemPath = topPlaybook.oemSettingsPathResolver(oemProfile)
         val reply = when (effectiveLanguage) {
             LanguageDetector.LANG_HINDI -> "⚠️ **सूचना (क्लाउड एआई उपलब्ध नहीं):**\n\n**${topPlaybook.problemTitle}**\n• **सेटिंग्स पथ:** `$oemPath`\n\n" +
@@ -916,7 +1309,7 @@ ${if (firstQuestion != null) "**Confirming Question:** $firstQuestion\n\n" else 
         )
         val fallbackBundle = AutonomousRepairOrchestrator.buildBundle(
             context = context,
-            userProblem = userProblem,
+            userProblem = effectiveQuery,
             vitals = vitals,
             recommendedActions = actions,
             repairPlan = plan,
@@ -930,7 +1323,10 @@ ${if (firstQuestion != null) "**Confirming Question:** $firstQuestion\n\n" else 
             autonomousBundle = fallbackBundle,
             aiStatus = status,
             aiStatusDetail = statusDetail,
-            responseLanguage = effectiveLanguage
+            responseLanguage = effectiveLanguage,
+            matchedProblemId = topPlaybook.id,
+            matchedProblemTitle = topPlaybook.problemTitle,
+            intentHandled = intent
         )
     }
 

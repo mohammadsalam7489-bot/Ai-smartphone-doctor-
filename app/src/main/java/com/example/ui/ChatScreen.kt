@@ -1,11 +1,14 @@
 package com.example.ui
 
+import android.Manifest
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.speech.RecognizerIntent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -164,6 +167,10 @@ fun ChatScreen(
     val autoFixReport by viewModel.autoFixReport.collectAsStateWithLifecycle()
     val currentlySpeakingMessageId by viewModel.currentlySpeakingMessageId.collectAsStateWithLifecycle()
     val isSpeaking by viewModel.isSpeaking.collectAsStateWithLifecycle()
+    val isVoiceConversationMode by viewModel.isVoiceConversationMode.collectAsStateWithLifecycle()
+    val isListening by viewModel.isListening.collectAsStateWithLifecycle()
+    val partialVoiceTranscript by viewModel.partialVoiceTranscript.collectAsStateWithLifecycle()
+    val activeVoiceEngineInfo by viewModel.activeVoiceEngineInfo.collectAsStateWithLifecycle()
     val aiServiceStatus by viewModel.aiServiceStatus.collectAsStateWithLifecycle()
     val aiStatusDetail by viewModel.aiStatusDetail.collectAsStateWithLifecycle()
     val currentLanguage by viewModel.currentLanguage.collectAsStateWithLifecycle()
@@ -184,7 +191,9 @@ fun ChatScreen(
     var inputText by remember { mutableStateOf("") }
     var showVitalsDetails by remember { mutableStateOf(false) }
 
-    // Voice recognition launcher
+    val isHindiUi = currentLanguage.equals("Hindi", ignoreCase = true)
+
+    // System Voice Prompt fallback launcher (works even without inline SpeechRecognizer)
     val voiceRecognitionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -193,6 +202,63 @@ fun ChatScreen(
             if (!spokenText.isNullOrBlank()) {
                 viewModel.sendUserMessage(spokenText, isVoiceInput = true)
             }
+        }
+    }
+
+    fun launchSystemVoicePrompt() {
+        val lastLang = viewModel.messages.value
+            .lastOrNull { it.sender == SenderType.DOCTOR && !it.responseLanguage.isNullOrBlank() }
+            ?.responseLanguage
+        val useHindiLocale = isHindiUi || lastLang == com.example.data.ai.LanguageDetector.LANG_HINDI ||
+            lastLang == com.example.data.ai.LanguageDetector.LANG_HINGLISH
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, if (useHindiLocale) "hi-IN" else "en-US")
+            putExtra(
+                RecognizerIntent.EXTRA_PROMPT,
+                if (isHindiUi) "अपने फोन की समस्या या सवाल बोलें..." else "Speak your phone issue or message..."
+            )
+        }
+        try {
+            voiceRecognitionLauncher.launch(intent)
+        } catch (_: Exception) {
+            viewModel.reportFeedback(
+                if (isHindiUi) "इस डिवाइस पर वॉइस इनपुट उपलब्ध नहीं है। कृपया संदेश टाइप करें।"
+                else "Voice recognition is not available on this device. Please type your message."
+            )
+        }
+    }
+
+    val recordAudioPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            viewModel.interruptSpeechAndListen { launchSystemVoicePrompt() }
+        } else {
+            viewModel.reportFeedback(strings.voicePermissionNeeded)
+            launchSystemVoicePrompt()
+        }
+    }
+
+    fun triggerVoiceWithBargeIn() {
+        // Immediately interrupt any active AI voice response
+        viewModel.stopSpeech()
+        if (isListening) {
+            viewModel.stopListeningOnly()
+            return
+        }
+        val hasMicPerm = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+        if (viewModel.isLiveSpeechAvailable()) {
+            if (hasMicPerm) {
+                viewModel.interruptSpeechAndListen { launchSystemVoicePrompt() }
+            } else {
+                recordAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            }
+        } else {
+            launchSystemVoicePrompt()
         }
     }
 
@@ -445,10 +511,26 @@ fun ChatScreen(
                 }
             }
 
-            // Clean Input Bar with toggleable Attach menu (+ Screenshot / Vitals)
+            // Live Voice Mode / Barge-In / Listening status strip (appears when Voice Mode or audio turn is active)
+            AnimatedVisibility(visible = isVoiceConversationMode || isSpeaking || isListening) {
+                VoiceConversationStatusBar(
+                    isVoiceMode = isVoiceConversationMode,
+                    isSpeaking = isSpeaking,
+                    isListening = isListening,
+                    partialTranscript = partialVoiceTranscript,
+                    voiceEngineInfo = activeVoiceEngineInfo,
+                    strings = strings,
+                    onToggleVoiceMode = { viewModel.toggleVoiceConversationMode() },
+                    onInterruptAndSpeak = { triggerVoiceWithBargeIn() }
+                )
+            }
+
+            // Clean Input Bar with toggleable Attach menu (+ Screenshot / Vitals) and Voice Mode switch
             FuturisticChatInputBar(
                 text = inputText,
                 hasAttachment = attachedScreenshot != null,
+                isVoiceMode = isVoiceConversationMode,
+                isListening = isListening,
                 strings = strings,
                 onTextChange = { inputText = it },
                 onSend = {
@@ -472,24 +554,8 @@ fun ChatScreen(
                         PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                     )
                 },
-                onVoiceInput = {
-                    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                        putExtra(RecognizerIntent.EXTRA_LANGUAGE, if (isHindi) "hi-IN" else "en-US")
-                        putExtra(
-                            RecognizerIntent.EXTRA_PROMPT,
-                            if (isHindi) "अपने फोन की समस्या बोलें..." else "Speak your phone problem..."
-                        )
-                    }
-                    try {
-                        voiceRecognitionLauncher.launch(intent)
-                    } catch (_: Exception) {
-                        viewModel.reportFeedback(
-                            if (isHindi) "इस डिवाइस पर वॉइस इनपुट उपलब्ध नहीं है। कृपया समस्या टाइप करें।"
-                            else "Voice recognition is not available on this device. Please type your problem."
-                        )
-                    }
-                },
+                onToggleVoiceMode = { viewModel.toggleVoiceConversationMode() },
+                onVoiceInput = { triggerVoiceWithBargeIn() },
                 isAnalyzing = isAnalyzing
             )
         }
@@ -2027,14 +2093,155 @@ fun QuickStartStarterCard(
 }
 
 @Composable
+fun VoiceConversationStatusBar(
+    isVoiceMode: Boolean,
+    isSpeaking: Boolean,
+    isListening: Boolean,
+    partialTranscript: String,
+    voiceEngineInfo: String,
+    strings: LocalizedStrings,
+    onToggleVoiceMode: () -> Unit,
+    onInterruptAndSpeak: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(CyberSurface.copy(alpha = 0.7f))
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Surface(
+            shape = RoundedCornerShape(10.dp),
+            color = if (isVoiceMode) CyberCyan.copy(alpha = 0.16f) else CyberSurfaceVariant,
+            border = androidx.compose.foundation.BorderStroke(
+                1.dp,
+                if (isVoiceMode) CyberCyan else CyberCardBorder
+            ),
+            modifier = Modifier
+                .minimumInteractiveComponentSize()
+                .clickable { onToggleVoiceMode() }
+                .testTag("voice_mode_status_chip")
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = if (isVoiceMode) Icons.AutoMirrored.Filled.VolumeUp else Icons.Default.Mic,
+                    contentDescription = if (isVoiceMode) strings.voiceModeLabel else strings.textModeLabel,
+                    tint = if (isVoiceMode) CyberCyan else CyberTextSecondary,
+                    modifier = Modifier.size(14.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = if (isVoiceMode) strings.voiceModeLabel else strings.textModeLabel,
+                    color = if (isVoiceMode) CyberCyan else CyberTextSecondary,
+                    fontSize = 10.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.width(8.dp))
+
+        when {
+            isSpeaking -> {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = CyberAmber.copy(alpha = 0.16f),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, CyberAmber.copy(alpha = 0.7f)),
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .minimumInteractiveComponentSize()
+                        .clickable { onInterruptAndSpeak() }
+                        .testTag("interrupt_ai_voice_btn")
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                            .testTag("voice_status_pill"),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(7.dp)
+                                .clip(CircleShape)
+                                .background(CyberAmber)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = strings.tapToInterruptLabel,
+                            color = CyberAmber,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+            isListening -> {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = CyberGreen.copy(alpha = 0.16f),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, CyberGreen),
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .minimumInteractiveComponentSize()
+                        .clickable { onInterruptAndSpeak() }
+                        .testTag("voice_status_pill")
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(7.dp)
+                                .clip(CircleShape)
+                                .background(CyberGreen)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (partialTranscript.isNotBlank()) partialTranscript else strings.listeningLabel,
+                            color = CyberGreen,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+            else -> {
+                Text(
+                    text = if (isVoiceMode) strings.voiceEngineNote else voiceEngineInfo.take(36),
+                    color = CyberTextMuted,
+                    fontSize = 9.5.sp,
+                    fontFamily = FontFamily.Monospace,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+            }
+        }
+    }
+}
+
+@Composable
 fun FuturisticChatInputBar(
     text: String,
     hasAttachment: Boolean = false,
+    isVoiceMode: Boolean = false,
+    isListening: Boolean = false,
     strings: LocalizedStrings,
     onTextChange: (String) -> Unit,
     onSend: () -> Unit,
     onAttachVitals: () -> Unit,
     onPickScreenshot: () -> Unit,
+    onToggleVoiceMode: () -> Unit = {},
     onVoiceInput: () -> Unit,
     isAnalyzing: Boolean
 ) {
@@ -2169,21 +2376,57 @@ fun FuturisticChatInputBar(
                 Spacer(modifier = Modifier.width(4.dp))
 
                 IconButton(
+                    onClick = onToggleVoiceMode,
+                    modifier = Modifier.testTag("voice_mode_toggle_btn")
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(if (isVoiceMode) CyberCyan.copy(alpha = 0.22f) else CyberSurfaceVariant)
+                            .border(
+                                1.dp,
+                                if (isVoiceMode) CyberCyan else CyberCardBorder,
+                                CircleShape
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = if (isVoiceMode) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeOff,
+                            contentDescription = if (isVoiceMode) strings.voiceModeLabel else strings.textModeLabel,
+                            tint = if (isVoiceMode) CyberCyan else CyberTextSecondary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+
+                IconButton(
                     onClick = onVoiceInput,
                     modifier = Modifier.testTag("voice_input_mic_button")
                 ) {
+                    val micTint = when {
+                        isListening -> CyberGreen
+                        isVoiceMode -> CyberCyan
+                        else -> CyberCyan
+                    }
                     Box(
                         modifier = Modifier
                             .size(40.dp)
                             .clip(CircleShape)
-                            .background(CyberCyan.copy(alpha = 0.14f))
-                            .border(1.dp, CyberCyan.copy(alpha = 0.7f), CircleShape),
+                            .background(
+                                when {
+                                    isListening -> CyberGreen.copy(alpha = 0.24f)
+                                    isVoiceMode -> CyberCyan.copy(alpha = 0.22f)
+                                    else -> CyberCyan.copy(alpha = 0.14f)
+                                }
+                            )
+                            .border(1.dp, micTint.copy(alpha = if (isListening || isVoiceMode) 0.95f else 0.7f), CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Default.Mic,
                             contentDescription = "Voice Input",
-                            tint = CyberCyan
+                            tint = micTint
                         )
                     }
                 }

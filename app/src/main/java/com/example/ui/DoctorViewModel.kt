@@ -10,8 +10,11 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.BuildConfig
 import com.example.data.ai.AiDoctorService
+import com.example.data.ai.ConversationIntent
+import com.example.data.ai.DoctorResponse
 import com.example.data.ai.LanguageDetector
 import com.example.data.ai.LocalizedDiagnosticFormatter
+import com.example.data.ai.TroubleshootingSessionContext
 import com.example.data.diagnostics.PingResult
 import com.example.data.diagnostics.RealDeviceDiagnostics
 import com.example.data.knowledge.KnowledgeCoverageAudit
@@ -77,6 +80,7 @@ class DoctorViewModel(application: Application) : AndroidViewModel(application) 
     }
     internal var aiService = AiDoctorService()
     private val voiceManager = com.example.util.NaturalVoiceManager(application)
+    private val speechInputManager = com.example.util.LiveSpeechInputManager(application)
     private val repository: DiagnosticRepository by lazy {
         val dao = AppDatabase.getInstance(application).diagnosticHistoryDao()
         DiagnosticRepository(dao)
@@ -84,6 +88,24 @@ class DoctorViewModel(application: Application) : AndroidViewModel(application) 
 
     val isSpeaking = voiceManager.isSpeaking
     val currentlySpeakingMessageId = voiceManager.currentlySpeakingMessageId
+    val activeVoiceEngineInfo = voiceManager.activeVoiceEngineInfo
+    val isListening = speechInputManager.isListening
+    val partialVoiceTranscript = speechInputManager.partialTranscript
+    val voiceSoundLevelDb = speechInputManager.rmsLevelDb
+
+    private val _isVoiceConversationMode = MutableStateFlow(
+        runCatching { sessionPrefs.getBoolean("voice_conversation_mode", false) }.getOrDefault(false)
+    )
+    val isVoiceConversationMode: StateFlow<Boolean> = _isVoiceConversationMode.asStateFlow()
+
+    private val _sessionContext = MutableStateFlow(
+        runCatching {
+            TroubleshootingSessionContext.fromJsonString(
+                sessionPrefs.getString("troubleshooting_context_json", null)
+            )
+        }.getOrDefault(TroubleshootingSessionContext())
+    )
+    val sessionContext: StateFlow<TroubleshootingSessionContext> = _sessionContext.asStateFlow()
 
     private val _vitals = MutableStateFlow<DeviceVitals?>(null)
     val vitals: StateFlow<DeviceVitals?> = _vitals.asStateFlow()
@@ -192,12 +214,65 @@ class DoctorViewModel(application: Application) : AndroidViewModel(application) 
     val lastImportResult: StateFlow<KnowledgeImportResult?> = _lastImportResult.asStateFlow()
 
     // Track active playbook / KB issue ID and tried action IDs for intelligent escalation
-    private var lastMatchedPlaybookId: String? = null
-    private val triedActionIdsInSession = mutableSetOf<String>()
+    private var lastMatchedPlaybookId: String? = _sessionContext.value.activeProblemId
+    private val triedActionIdsInSession = mutableSetOf<String>().apply {
+        addAll(_sessionContext.value.attemptedActionIds)
+        addAll(_sessionContext.value.failedActionIds)
+    }
 
     companion object {
         private const val TAG = "DoctorViewModel"
         private const val WELCOME_MESSAGE_ID = "welcome_msg"
+        private const val PREF_KEY_CONTEXT_JSON = "troubleshooting_context_json"
+        private const val PREF_KEY_VOICE_MODE = "voice_conversation_mode"
+    }
+
+    private fun persistSessionContext(ctx: TroubleshootingSessionContext) {
+        _sessionContext.value = ctx
+        lastMatchedPlaybookId = ctx.activeProblemId
+        triedActionIdsInSession.clear()
+        triedActionIdsInSession.addAll(ctx.attemptedActionIds)
+        triedActionIdsInSession.addAll(ctx.failedActionIds)
+        runCatching {
+            sessionPrefs.edit().putString(PREF_KEY_CONTEXT_JSON, ctx.toJsonString()).apply()
+        }
+    }
+
+    private fun updateSessionContextFromResponse(userQuery: String, response: DoctorResponse) {
+        val current = _sessionContext.value
+        val updated = when (response.intentHandled) {
+            ConversationIntent.SMALL_TALK -> current
+            ConversationIntent.CLARIFY_EXPLANATION -> current.copy(
+                activeProblemId = response.matchedProblemId ?: current.activeProblemId,
+                activeProblemTitle = response.matchedProblemTitle ?: current.activeProblemTitle,
+                activeCategory = response.matchedCategory ?: current.activeCategory,
+                lastAssistantSummary = response.replyText.take(500)
+            )
+            ConversationIntent.FOLLOW_UP_NOT_FIXED -> current.copy(
+                activeProblemId = response.matchedProblemId ?: current.activeProblemId,
+                activeProblemTitle = response.matchedProblemTitle ?: current.activeProblemTitle,
+                activeCategory = response.matchedCategory ?: current.activeCategory,
+                lastAssistantSummary = response.replyText.take(500),
+                followUpStepOffset = current.followUpStepOffset + 1
+            )
+            ConversationIntent.PROBLEM_REPORT -> {
+                val isClarify = response.matchedProblemId == "CLARIFY-REQUIRED"
+                val sameProblem = !isClarify && response.matchedProblemId != null &&
+                    response.matchedProblemId == current.activeProblemId
+                TroubleshootingSessionContext(
+                    activeProblemId = if (isClarify) current.activeProblemId else (response.matchedProblemId ?: response.repairPlan?.playbookId),
+                    activeProblemTitle = if (isClarify) current.activeProblemTitle else (response.matchedProblemTitle ?: response.repairPlan?.problemTitle),
+                    activeCategory = if (isClarify) current.activeCategory else response.matchedCategory,
+                    lastSymptomQuery = if (isClarify) (current.lastSymptomQuery ?: userQuery) else userQuery,
+                    attemptedActionIds = if (sameProblem) current.attemptedActionIds else emptySet(),
+                    failedActionIds = if (sameProblem) current.failedActionIds else emptySet(),
+                    succeededActionIds = if (sameProblem) current.succeededActionIds else emptySet(),
+                    lastAssistantSummary = response.replyText.take(500),
+                    followUpStepOffset = if (sameProblem) current.followUpStepOffset else 0
+                )
+            }
+        }
+        persistSessionContext(updated)
     }
 
     init {
@@ -524,6 +599,10 @@ class DoctorViewModel(application: Application) : AndroidViewModel(application) 
         )
 
         removeAttachedScreenshot()
+        // Interrupt any ongoing AI voice response if user sends a new message
+        if (_isSpeakingValueSafe()) {
+            voiceManager.stop()
+        }
         _messages.value = _messages.value + userMsg
         _isAnalyzing.value = true
 
@@ -540,12 +619,13 @@ class DoctorViewModel(application: Application) : AndroidViewModel(application) 
                     screenshot = userMsg.attachedScreenshot,
                     conversationHistory = history,
                     context = getApplication(),
-                    language = _currentLanguage.value
+                    language = _currentLanguage.value,
+                    sessionContext = _sessionContext.value
                 )
 
                 _aiServiceStatus.value = response.aiStatus
                 _aiStatusDetail.value = response.aiStatusDetail ?: response.aiStatus.badgeText
-                lastMatchedPlaybookId = response.repairPlan?.playbookId
+                updateSessionContextFromResponse(userMsg.text, response)
 
                 val doctorMsg = ChatMessage(
                     id = UUID.randomUUID().toString(),
@@ -563,8 +643,12 @@ class DoctorViewModel(application: Application) : AndroidViewModel(application) 
                 )
                 _messages.value = _messages.value + doctorMsg
 
-                if (isVoiceInput) {
-                    voiceManager.speak(doctorMsg.text, doctorMsg.id)
+                if (isVoiceInput || _isVoiceConversationMode.value) {
+                    voiceManager.speak(
+                        text = doctorMsg.text,
+                        messageId = doctorMsg.id,
+                        explicitLanguage = response.responseLanguage
+                    )
                 }
             } catch (c: CancellationException) {
                 throw c
@@ -593,8 +677,12 @@ class DoctorViewModel(application: Application) : AndroidViewModel(application) 
                     canRetryCloudAi = true
                 )
                 _messages.value = _messages.value + errorMsg
-                if (isVoiceInput) {
-                    voiceManager.speak(errorMsg.text, errorMsg.id)
+                if (isVoiceInput || _isVoiceConversationMode.value) {
+                    voiceManager.speak(
+                        text = errorMsg.text,
+                        messageId = errorMsg.id,
+                        explicitLanguage = detectedLang
+                    )
                 }
             } finally {
                 _isAnalyzing.value = false
@@ -634,12 +722,13 @@ class DoctorViewModel(application: Application) : AndroidViewModel(application) 
                     screenshot = targetMsg.retryScreenshot,
                     conversationHistory = history,
                     context = getApplication(),
-                    language = _currentLanguage.value
+                    language = _currentLanguage.value,
+                    sessionContext = _sessionContext.value
                 )
 
                 _aiServiceStatus.value = response.aiStatus
                 _aiStatusDetail.value = response.aiStatusDetail ?: response.aiStatus.badgeText
-                lastMatchedPlaybookId = response.repairPlan?.playbookId
+                updateSessionContextFromResponse(prompt, response)
 
                 val updatedMsg = targetMsg.copy(
                     text = response.replyText,
@@ -666,11 +755,64 @@ class DoctorViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    private fun _isSpeakingValueSafe(): Boolean = voiceManager.isSpeaking.value
+
+    fun isLiveSpeechAvailable(): Boolean = speechInputManager.isAvailable()
+
+    fun setVoiceConversationMode(enabled: Boolean) {
+        _isVoiceConversationMode.value = enabled
+        runCatching {
+            sessionPrefs.edit().putBoolean(PREF_KEY_VOICE_MODE, enabled).apply()
+        }
+        if (!enabled) {
+            voiceManager.stop()
+            speechInputManager.stopListening()
+        }
+    }
+
+    fun toggleVoiceConversationMode() {
+        setVoiceConversationMode(!_isVoiceConversationMode.value)
+    }
+
+    fun interruptSpeechAndListen(onNeedFallbackIntent: () -> Unit) {
+        // Immediate barge-in interruption when user starts speaking
+        voiceManager.stop()
+        if (_isAnalyzing.value) return
+
+        val preferredLang = _messages.value
+            .lastOrNull { it.sender == SenderType.DOCTOR && !it.responseLanguage.isNullOrBlank() }
+            ?.responseLanguage
+            ?: _currentLanguage.value
+
+        speechInputManager.startListening(
+            language = preferredLang,
+            onInterruptAiSpeech = { voiceManager.stop() },
+            onFinalTranscript = { spoken ->
+                sendUserMessage(spoken, isVoiceInput = true)
+            },
+            onErrorOrUnavailable = { useIntentFallback, reason ->
+                if (useIntentFallback) {
+                    onNeedFallbackIntent()
+                } else if (reason.isNotBlank()) {
+                    _actionFeedback.value = reason
+                }
+            }
+        )
+    }
+
+    fun stopListeningOnly() {
+        speechInputManager.stopListening()
+    }
+
     fun toggleSpeech(message: ChatMessage) {
         if (currentlySpeakingMessageId.value == message.id) {
             voiceManager.stop()
         } else {
-            voiceManager.speak(message.text, message.id)
+            voiceManager.speak(
+                text = message.text,
+                messageId = message.id,
+                explicitLanguage = message.responseLanguage ?: _currentLanguage.value
+            )
         }
     }
 
@@ -680,6 +822,7 @@ class DoctorViewModel(application: Application) : AndroidViewModel(application) 
 
     override fun onCleared() {
         super.onCleared()
+        speechInputManager.destroy()
         voiceManager.shutdown()
     }
 
@@ -824,6 +967,25 @@ class DoctorViewModel(application: Application) : AndroidViewModel(application) 
                     )
                 }
 
+                // Persist attempted, failed, and succeeded actions so follow-ups never repeat failed steps
+                val failedBatchIds = verifiedSteps
+                    .filter { it.status == AutonomousStepStatus.BLOCKED_OR_FAILED }
+                    .map { it.action.id }
+                    .toSet()
+                val succeededBatchIds = verifiedSteps
+                    .filter { it.status == AutonomousStepStatus.VERIFIED_IMPROVED }
+                    .map { it.action.id }
+                    .toSet()
+                val attemptedBatchIds = verifiedSteps.map { it.action.id }.toSet()
+                val curCtx = _sessionContext.value
+                persistSessionContext(
+                    curCtx.copy(
+                        attemptedActionIds = curCtx.attemptedActionIds + attemptedBatchIds,
+                        failedActionIds = curCtx.failedActionIds + failedBatchIds,
+                        succeededActionIds = curCtx.succeededActionIds + succeededBatchIds
+                    )
+                )
+
                 val improvedCount = verifiedSteps.count { it.status == AutonomousStepStatus.VERIFIED_IMPROVED }
                 val needsConfirmStep = verifiedSteps.firstOrNull { it.status == AutonomousStepStatus.NEEDS_USER_CONFIRMATION }
                 val overallSummary = when (activeLang) {
@@ -944,6 +1106,23 @@ class DoctorViewModel(application: Application) : AndroidViewModel(application) 
                     language = activeLang
                 )
 
+                val curCtx = _sessionContext.value
+                persistSessionContext(
+                    curCtx.copy(
+                        attemptedActionIds = curCtx.attemptedActionIds + action.id,
+                        failedActionIds = if (comparison.outcome == VerificationOutcome.EXECUTION_FAILED) {
+                            curCtx.failedActionIds + action.id
+                        } else {
+                            curCtx.failedActionIds
+                        },
+                        succeededActionIds = if (comparison.outcome == VerificationOutcome.VERIFIED_IMPROVED) {
+                            curCtx.succeededActionIds + action.id
+                        } else {
+                            curCtx.succeededActionIds
+                        }
+                    )
+                )
+
                 // Persist audit entry to Room DB
                 repository.saveHistoryItem(
                     DiagnosticHistoryItem(
@@ -1018,6 +1197,15 @@ class DoctorViewModel(application: Application) : AndroidViewModel(application) 
                 )
             }
         }
+
+        val curCtx = _sessionContext.value
+        persistSessionContext(
+            curCtx.copy(
+                attemptedActionIds = curCtx.attemptedActionIds + action.id,
+                failedActionIds = if (isSuccess) curCtx.failedActionIds else (curCtx.failedActionIds + action.id),
+                succeededActionIds = if (isSuccess) (curCtx.succeededActionIds + action.id) else curCtx.succeededActionIds
+            )
+        )
 
         if (isSuccess) {
             _messages.value = _messages.value + ChatMessage(
@@ -1098,8 +1286,9 @@ class DoctorViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun resetChat() {
-        triedActionIdsInSession.clear()
-        lastMatchedPlaybookId = null
+        voiceManager.stop()
+        speechInputManager.stopListening()
+        persistSessionContext(TroubleshootingSessionContext())
         refreshVitals()
         sendWelcomeMessage()
     }

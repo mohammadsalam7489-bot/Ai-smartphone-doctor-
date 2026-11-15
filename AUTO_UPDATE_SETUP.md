@@ -26,12 +26,12 @@ This project includes a complete end-to-end **GitHub Actions + In-App Self-Updat
    - Compares `remote.versionCode > local.versionCode`.
    - When an update is found:
      - Posts an Android notification (**"Update Available: vX.Y.Z"**).
-     - Displays an in-app **Update Available** banner and an interactive update dialog.
+     - Displays an in-app **Update Available** banner and an interactive update dialog showing version number, release date, changelog, and direct APK download link.
    - On tapping **Update**:
      - Streams APK download into `filesDir/updates/` with live byte/percentage progress.
      - Verifies **SHA-256 digest** and confirms downloaded APK `packageName == context.packageName`.
      - Checks `packageManager.canRequestPackageInstalls()` (`REQUEST_INSTALL_PACKAGES`) and guides the user smoothly if one-time permission is needed.
-     - Launches `Intent(Intent.ACTION_VIEW)` via `FileProvider` (`${applicationId}.fileprovider`) so Android performs an **in-place upgrade**.
+     - Launches `Intent(Intent.ACTION_VIEW)` via `FileProvider` (`${applicationId}.fileprovider`) so Android performs an **in-place upgrade** while preserving Room DB history, language/voice preferences, and troubleshooting session context.
 
 ---
 
@@ -54,9 +54,9 @@ Configure ONE of these signing options in your GitHub repository **Settings → 
 
 ---
 
-## 3. Optional Secrets (AI Key & Firebase App Distribution)
+## 3. Optional CI Secrets (Firebase Config & App Distribution)
 
-- `GEMINI_API_KEY`: Injected into ephemeral `.env` during CI build only (never committed to git).
+- `GOOGLE_SERVICES_JSON`: Base/raw JSON content of `app/google-services.json` if overriding Firebase project config at CI build time (Gemini requests use Firebase AI Logic + App Check — zero raw API keys stored in CI or APK).
 - `FIREBASE_APP_ID`: Your Firebase Android App ID (e.g. `1:123456:android:abcdef`) for Firebase App Distribution.
 - `FIREBASE_CREDENTIAL_FILE_CONTENT`: Firebase service account JSON content with *Firebase App Distribution Admin* role.
 - `FIREBASE_TESTER_GROUPS`: Tester group alias in Firebase Console (defaults to `testers`).

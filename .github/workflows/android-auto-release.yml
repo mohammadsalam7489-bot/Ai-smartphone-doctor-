@@ -28,6 +28,8 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -42,24 +44,34 @@ jobs:
           RUN_NUM=${{ github.run_number }}
           VERSION_CODE=$((BASE_CODE + RUN_NUM))
           VERSION_NAME="1.1.${RUN_NUM}"
+          RELEASE_DATE_UTC=$(date -u +"%Y-%m-%d %H:%M UTC")
+          PUBLISHED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           echo "VERSION_CODE=${VERSION_CODE}" >> "$GITHUB_OUTPUT"
           echo "VERSION_NAME=${VERSION_NAME}" >> "$GITHUB_OUTPUT"
-          echo "Computed Version: v${VERSION_NAME} (versionCode=${VERSION_CODE})"
+          echo "RELEASE_DATE_UTC=${RELEASE_DATE_UTC}" >> "$GITHUB_OUTPUT"
+          echo "PUBLISHED_AT=${PUBLISHED_AT}" >> "$GITHUB_OUTPUT"
+          echo "Computed Version: v${VERSION_NAME} (versionCode=${VERSION_CODE}) on ${RELEASE_DATE_UTC}"
 
       - name: Prepare CI Signing & Non-Secret Config
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
         run: |
           # SECURITY: Never bake GEMINI_API_KEY into the APK.
           # Cloud AI uses Firebase AI Logic + App Check or server-side backend/ proxy.
-          if [ -n "${{ secrets.GOOGLE_SERVICES_JSON }}" ]; then
-            echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > app/google-services.json
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            printf '%s\n' "$GOOGLE_SERVICES_JSON" > app/google-services.json
           fi
 
-          if [ -n "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" ] && [ -n "${{ secrets.STORE_PASSWORD }}" ] && [ -n "${{ secrets.KEY_PASSWORD }}" ]; then
-            echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 --decode > my-upload-key.jks
+          if [ -n "$RELEASE_KEYSTORE_BASE64" ] && [ -n "$STORE_PASSWORD" ] && [ -n "$KEY_PASSWORD" ]; then
+            printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > my-upload-key.jks
             echo "SIGN_MODE=release" >> "$GITHUB_ENV"
             echo "KEYSTORE_PATH=${{ github.workspace }}/my-upload-key.jks" >> "$GITHUB_ENV"
-          elif [ -n "${{ secrets.DEBUG_KEYSTORE_BASE64 }}" ]; then
-            echo "${{ secrets.DEBUG_KEYSTORE_BASE64 }}" | base64 --decode > debug.keystore
+          elif [ -n "$DEBUG_KEYSTORE_BASE64" ]; then
+            printf '%s' "$DEBUG_KEYSTORE_BASE64" | base64 --decode > debug.keystore
             echo "SIGN_MODE=debug" >> "$GITHUB_ENV"
           else
             echo "::warning::No RELEASE_KEYSTORE_BASE64 or DEBUG_KEYSTORE_BASE64 secret found. Generating ephemeral debug.keystore (in-place upgrades require a persistent keystore secret)."
@@ -119,25 +131,70 @@ jobs:
           echo "APK_SIZE=${SIZE_BYTES}" >> "$GITHUB_OUTPUT"
           echo "Built dist/Ai-Smartphone-Doctor.apk (${SIZE_BYTES} bytes, sha256=${SHA256})"
 
-      - name: Generate Update Manifest JSON
+      - name: Generate Changelog & Update Manifest JSON
+        env:
+          RELEASE_DATE_UTC: ${{ steps.version.outputs.RELEASE_DATE_UTC }}
+          PUBLISHED_AT: ${{ steps.version.outputs.PUBLISHED_AT }}
+          VERSION_CODE: ${{ steps.version.outputs.VERSION_CODE }}
+          VERSION_NAME: ${{ steps.version.outputs.VERSION_NAME }}
+          APK_SHA256: ${{ steps.build_apk.outputs.APK_SHA256 }}
+          APK_SIZE: ${{ steps.build_apk.outputs.APK_SIZE }}
+          CUSTOM_EN: ${{ github.event.inputs.release_notes }}
+          CUSTOM_HI: ${{ github.event.inputs.release_notes_hi }}
         run: |
-          TAG_NAME="v${{ steps.version.outputs.VERSION_NAME }}"
+          mkdir -p dist
+          TAG_NAME="v${VERSION_NAME}"
           APK_URL="https://github.com/${{ github.repository }}/releases/download/${TAG_NAME}/Ai-Smartphone-Doctor.apk"
-          PUBLISHED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          NOTES_EN="${{ github.event.inputs.release_notes || 'Automatic CI release with latest diagnostics, pure Devanagari Hindi & English localization, and stability fixes.' }}"
-          NOTES_HI="${{ github.event.inputs.release_notes_hi || 'नवीनतम निदान, शुद्ध देवनागरी हिंदी व अंग्रेजी भाषा और स्थिरता सुधार के साथ स्वचालित रिलीज़।' }}"
+          LATEST_APK_URL="https://github.com/${{ github.repository }}/releases/download/latest/Ai-Smartphone-Doctor.apk"
+
+          PREV_TAG=$(git tag --list 'v*' --sort=-v:refname | head -n 1 || true)
+          if [ -n "$PREV_TAG" ]; then
+            COMMIT_LOG=$(git log "${PREV_TAG}..HEAD" --pretty=format:"- %s (%h)" -n 20)
+          else
+            COMMIT_LOG=$(git log -n 15 --pretty=format:"- %s (%h)")
+          fi
+          if [ -z "$COMMIT_LOG" ]; then
+            COMMIT_LOG="- Automatic build v${VERSION_NAME} from main branch"
+          fi
+
+          cat > dist/CHANGELOG_RELEASE.md <<EOF
+## AI Smartphone Doctor ${TAG_NAME} (Build ${VERSION_CODE})
+
+- **Version:** \`${TAG_NAME}\` (versionCode \`${VERSION_CODE}\`)
+- **Release Date:** ${RELEASE_DATE_UTC}
+- **Direct APK Download Link:** [${TAG_NAME} APK Download](${APK_URL})
+- **Always-Latest Channel Link:** [Latest APK Download](${LATEST_APK_URL})
+- **Package ID (Preserves Data on Upgrade):** \`com.aistudio.smartphonedoctor.oapeir\`
+- **SHA-256 Checksum:** \`${APK_SHA256}\`
+
+### Changelog
+${COMMIT_LOG}
+
+---
+Previous releases remain archived and downloadable from the Releases tab. Installing this update over an existing installation preserves repair logs, diagnostic history, and user session context.
+EOF
 
           python3 - <<'PY'
           import json, os
+          with open("dist/CHANGELOG_RELEASE.md", "r", encoding="utf-8") as cf:
+              changelog_md = cf.read()
+          custom_en = os.environ.get("CUSTOM_EN", "").strip()
+          custom_hi = os.environ.get("CUSTOM_HI", "").strip()
+          version_name = os.environ["VERSION_NAME"]
+          release_date_utc = os.environ.get("RELEASE_DATE_UTC", "")
+          commit_summary = custom_en if custom_en else changelog_md.split("### Changelog", 1)[-1].split("---", 1)[0].strip()
+          notes_en = f"Release v{version_name} ({release_date_utc})\n{commit_summary}"
+          notes_hi = custom_hi if custom_hi else f"रिलीज़ v{version_name} ({release_date_utc}): नवीनतम एआई निदान, प्राकृतिक आवाज़ और ऑटो-रिपेयर अपडेट।"
+
           manifest = {
-              "versionCode": int("${{ steps.version.outputs.VERSION_CODE }}"),
-              "versionName": "${{ steps.version.outputs.VERSION_NAME }}",
-              "apkUrl": f"https://github.com/${{ github.repository }}/releases/download/v${{ steps.version.outputs.VERSION_NAME }}/Ai-Smartphone-Doctor.apk",
-              "sha256": "${{ steps.build_apk.outputs.APK_SHA256 }}",
-              "fileSizeBytes": int("${{ steps.build_apk.outputs.APK_SIZE }}"),
-              "releaseNotes": """${{ github.event.inputs.release_notes || 'Automatic release from main branch with latest AI Doctor diagnostics & fixes.' }}""",
-              "releaseNotesHi": """${{ github.event.inputs.release_notes_hi || 'मुख्य शाखा से नवीनतम एआई डॉक्टर निदान और सुधारों के साथ स्वचालित रिलीज़।' }}""",
-              "publishedAt": os.popen('date -u +"%Y-%m-%dT%H:%M:%SZ"').read().strip(),
+              "versionCode": int(os.environ["VERSION_CODE"]),
+              "versionName": version_name,
+              "apkUrl": f"https://github.com/${{ github.repository }}/releases/download/v{version_name}/Ai-Smartphone-Doctor.apk",
+              "sha256": os.environ["APK_SHA256"],
+              "fileSizeBytes": int(os.environ["APK_SIZE"]),
+              "releaseNotes": notes_en,
+              "releaseNotesHi": notes_hi,
+              "publishedAt": os.environ["PUBLISHED_AT"],
               "mandatory": False
           }
           with open("dist/update-manifest.json", "w", encoding="utf-8") as f:
@@ -145,23 +202,25 @@ jobs:
           PY
           cat dist/update-manifest.json
 
-      - name: Publish Versioned GitHub Release
+      - name: Publish Versioned GitHub Release (Preserves Previous Releases)
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.VERSION_NAME }}
           name: AI Smartphone Doctor v${{ steps.version.outputs.VERSION_NAME }}
-          generate_release_notes: true
+          body_path: dist/CHANGELOG_RELEASE.md
+          make_latest: true
           files: |
             dist/Ai-Smartphone-Doctor.apk
             dist/update-manifest.json
 
-      - name: Update Rolling 'latest' Update Channel Release
+      - name: Update Rolling 'latest' Direct Download Channel
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
           name: Latest Automatic Update Channel
+          body_path: dist/CHANGELOG_RELEASE.md
           prerelease: false
-          make_latest: true
+          make_latest: false
           files: |
             dist/Ai-Smartphone-Doctor.apk
             dist/update-manifest.json

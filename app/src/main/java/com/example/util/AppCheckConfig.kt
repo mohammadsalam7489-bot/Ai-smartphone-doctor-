@@ -14,7 +14,36 @@ private const val TAG = "AppCheckInit"
 private const val DEBUG_TOKEN_EXTRA = "FIREBASE_APPCHECK_DEBUG_TOKEN"
 private const val DEBUG_STORE_PREFIX = "com.google.firebase.appcheck.debug.store."
 private const val DEBUG_SECRET_KEY = "com.google.firebase.appcheck.debug.DEBUG_SECRET"
+private const val META_PREFS_NAME = "ai_doctor_appcheck_meta"
+private const val KEY_INJECTED_DEBUG_TOKEN = "aistudio_debug_token_injected"
 private const val RECAPTCHA_SITE_KEY_RES = "recaptcha_site_key"
+
+enum class AppCheckProviderMode {
+    UNINITIALIZED,
+    DEBUG_INTENT_INJECTED,
+    DEBUG_PERSISTED_INTENT,
+    RECAPTCHA_STANDALONE,
+    RECAPTCHA_RELEASE,
+    DEBUG_FALLBACK_NO_SITE_KEY,
+    MISCONFIGURED
+}
+
+object AppCheckConfigStatus {
+    @Volatile
+    var providerMode: AppCheckProviderMode = AppCheckProviderMode.UNINITIALIZED
+        internal set
+
+    @Volatile
+    var projectId: String? = null
+        internal set
+
+    @Volatile
+    var hasRecaptchaSiteKey: Boolean = false
+        internal set
+
+    fun summary(): String =
+        "mode=${providerMode.name}, project=${projectId ?: "none"}, recaptchaKey=${hasRecaptchaSiteKey}"
+}
 
 fun configureAppCheck(context: Context, intent: Intent?) {
     try {
@@ -29,50 +58,74 @@ fun configureAppCheck(context: Context, intent: Intent?) {
         }
 
         if (app == null || FirebaseApp.getApps(context).isEmpty()) {
-            Log.w(TAG, "FirebaseApp is not initialized yet (Firebase resources not provisioned). Skipping App Check configuration.")
+            AppCheckConfigStatus.providerMode = AppCheckProviderMode.MISCONFIGURED
+            AppCheckConfigStatus.projectId = null
+            Log.w(TAG, "FirebaseApp is not initialized yet (google-services.json missing or unprovisioned). Skipping App Check configuration.")
             return
         }
 
+        AppCheckConfigStatus.projectId = runCatching { app.options.projectId }.getOrNull()
+
+        val resId = context.resources.getIdentifier(RECAPTCHA_SITE_KEY_RES, "string", context.packageName)
+        val siteKey = if (resId != 0) context.getString(resId).trim() else ""
+        AppCheckConfigStatus.hasRecaptchaSiteKey = siteKey.isNotEmpty()
+
+        val appCheck = FirebaseAppCheck.getInstance(app)
+
         if (BuildConfig.DEBUG) {
-            val debugToken = intent?.getStringExtra(DEBUG_TOKEN_EXTRA)
+            val debugToken = intent?.getStringExtra(DEBUG_TOKEN_EXTRA)?.trim()
+            val persistenceKey = app.persistenceKey
+            val debugStorePrefs = context.getSharedPreferences(
+                "$DEBUG_STORE_PREFIX$persistenceKey",
+                Context.MODE_PRIVATE
+            )
+            val metaPrefs = context.getSharedPreferences(META_PREFS_NAME, Context.MODE_PRIVATE)
 
             if (!debugToken.isNullOrEmpty()) {
-                val persistenceKey = app.persistenceKey
-                val prefs = context.getSharedPreferences(
-                    "$DEBUG_STORE_PREFIX$persistenceKey",
-                    Context.MODE_PRIVATE
-                )
-                // CRITICAL: MUST use commit() instead of apply() so the secret is written
-                // synchronously before DebugAppCheckProviderFactory reads it.
-                prefs.edit()
+                // CRITICAL: MUST use synchronous commit() so DebugAppCheckProviderFactory
+                // reads the injected token immediately before any Firebase request fires.
+                debugStorePrefs.edit()
                     .putString(DEBUG_SECRET_KEY, debugToken)
                     .commit()
-                Log.d(TAG, "App Check debug secret configured successfully.")
+                metaPrefs.edit()
+                    .putBoolean(KEY_INJECTED_DEBUG_TOKEN, true)
+                    .commit()
+                appCheck.installAppCheckProviderFactory(DebugAppCheckProviderFactory.getInstance())
+                AppCheckConfigStatus.providerMode = AppCheckProviderMode.DEBUG_INTENT_INJECTED
+                Log.d(TAG, "App Check debug secret injected from Intent and DebugAppCheckProviderFactory installed.")
             } else {
-                Log.w(TAG, "No debug token found in Intent extra.")
-            }
+                val hadInjectedToken = metaPrefs.getBoolean(KEY_INJECTED_DEBUG_TOKEN, false)
+                val persistedSecret = debugStorePrefs.getString(DEBUG_SECRET_KEY, null)
 
-            FirebaseAppCheck.getInstance(app).installAppCheckProviderFactory(
-                DebugAppCheckProviderFactory.getInstance()
-            )
-            Log.d(TAG, "DebugAppCheckProviderFactory installed.")
-        } else {
-            val resId = context.resources.getIdentifier(RECAPTCHA_SITE_KEY_RES, "string", context.packageName)
-            if (resId != 0) {
-                val siteKey = context.getString(resId)
-                if (siteKey.isNotBlank()) {
-                    FirebaseAppCheck.getInstance(app).installAppCheckProviderFactory(
-                        RecaptchaAppCheckProviderFactory.getInstance(siteKey)
-                    )
-                    Log.d(TAG, "RecaptchaAppCheckProviderFactory installed.")
+                if (hadInjectedToken && !persistedSecret.isNullOrBlank()) {
+                    appCheck.installAppCheckProviderFactory(DebugAppCheckProviderFactory.getInstance())
+                    AppCheckConfigStatus.providerMode = AppCheckProviderMode.DEBUG_PERSISTED_INTENT
+                    Log.d(TAG, "Persisted AI Studio debug token found; DebugAppCheckProviderFactory installed.")
+                } else if (siteKey.isNotEmpty()) {
+                    // Standalone / GitHub-downloaded APK on a physical device has NO AI Studio Intent debug token.
+                    // Using DebugAppCheckProviderFactory here would generate a random unregistered UUID that fails
+                    // with HTTP 403 ("Firebase App Check token is invalid"). Use reCAPTCHA Enterprise instead.
+                    appCheck.installAppCheckProviderFactory(RecaptchaAppCheckProviderFactory.getInstance(siteKey))
+                    AppCheckConfigStatus.providerMode = AppCheckProviderMode.RECAPTCHA_STANDALONE
+                    Log.d(TAG, "Standalone APK detected (no debug Intent token); RecaptchaAppCheckProviderFactory installed.")
                 } else {
-                    Log.e(TAG, "recaptcha_site_key resource string is blank.")
+                    appCheck.installAppCheckProviderFactory(DebugAppCheckProviderFactory.getInstance())
+                    AppCheckConfigStatus.providerMode = AppCheckProviderMode.DEBUG_FALLBACK_NO_SITE_KEY
+                    Log.w(TAG, "No debug token Intent extra and no recaptcha_site_key found; falling back to DebugAppCheckProviderFactory.")
                 }
+            }
+        } else {
+            if (siteKey.isNotEmpty()) {
+                appCheck.installAppCheckProviderFactory(RecaptchaAppCheckProviderFactory.getInstance(siteKey))
+                AppCheckConfigStatus.providerMode = AppCheckProviderMode.RECAPTCHA_RELEASE
+                Log.d(TAG, "RecaptchaAppCheckProviderFactory installed for release build.")
             } else {
-                Log.e(TAG, "recaptcha_site_key string resource not found in package.")
+                AppCheckConfigStatus.providerMode = AppCheckProviderMode.MISCONFIGURED
+                Log.e(TAG, "recaptcha_site_key string resource is missing or blank in release build.")
             }
         }
     } catch (e: Exception) {
+        AppCheckConfigStatus.providerMode = AppCheckProviderMode.MISCONFIGURED
         Log.e(TAG, "Failed to initialize Firebase App Check", e)
     }
 }

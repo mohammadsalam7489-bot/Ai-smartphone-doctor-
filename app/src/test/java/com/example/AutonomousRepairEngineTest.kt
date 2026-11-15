@@ -39,7 +39,7 @@ import com.example.ui.DoctorViewModel
 import com.example.ui.components.AutonomousBatchApprovalDialog
 import com.example.ui.i18n.AppStrings
 import com.example.ui.theme.MyApplicationTheme
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -299,7 +299,7 @@ class AutonomousRepairEngineTest {
         assertTrue(lastMsg.text.contains("Autonomous Repair & Verification Report"))
 
         // History persisted in Room DB
-        val history = viewModel.historyItems.first { it.isNotEmpty() }
+        val history = waitForHistoryNonEmpty(viewModel)
         assertTrue(history.any { it.category == "AUTONOMOUS REPAIR" })
     }
 
@@ -441,5 +441,24 @@ class AutonomousRepairEngineTest {
         ShadowLooper.idleMainLooper()
         val doneBundle = viewModel.messages.value.first { it.id == messageId }.autonomousBundle!!
         assertTrue("Expected autonomous batch execution to finish cleanly", doneBundle.isApprovedAndExecuted)
+    }
+
+    private fun waitForHistoryNonEmpty(viewModel: DoctorViewModel): List<com.example.data.model.DiagnosticHistoryItem> = runBlocking {
+        val collectJob = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default).launch {
+            viewModel.historyItems.collect {}
+        }
+        try {
+            var elapsed = 0L
+            while (viewModel.historyItems.value.isEmpty() && elapsed < 15_000L) {
+                ShadowLooper.idleMainLooper()
+                Thread.sleep(50)
+                elapsed += 50
+            }
+            ShadowLooper.idleMainLooper()
+            assertTrue("Expected persisted diagnostic history in Room DB", viewModel.historyItems.value.isNotEmpty())
+            viewModel.historyItems.value
+        } finally {
+            collectJob.cancel()
+        }
     }
 }

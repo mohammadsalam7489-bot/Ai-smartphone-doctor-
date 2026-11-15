@@ -18,8 +18,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
@@ -280,6 +282,7 @@ fun AppUpdateDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
                     .testTag("app_update_dialog_content"),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
@@ -356,6 +359,24 @@ fun AppUpdateDialog(
                                         fontFamily = FontFamily.Monospace
                                     )
                                 }
+                                if (m.publishedAt.isNotBlank()) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = if (isHindi) "रिलीज़ दिनांक:" else "Release Date:",
+                                            color = CyberTextMuted,
+                                            fontSize = 10.5.sp
+                                        )
+                                        Text(
+                                            text = m.publishedAt.take(10),
+                                            color = CyberTextPrimary,
+                                            fontSize = 10.5.sp,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                    }
+                                }
                             }
                         }
 
@@ -372,6 +393,14 @@ fun AppUpdateDialog(
                             fontSize = 12.sp,
                             lineHeight = 17.sp
                         )
+                        if (m.apkUrl.isNotBlank()) {
+                            Text(
+                                text = "APK: ${m.apkUrl}",
+                                color = CyberCyan,
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
 
                         Surface(
                             color = CyberGreen.copy(alpha = 0.1f),

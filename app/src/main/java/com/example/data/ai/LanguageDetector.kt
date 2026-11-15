@@ -13,20 +13,22 @@ object LanguageDetector {
     private val devanagariRegex = Regex("[\\u0900-\\u097F]")
 
     private val strongHinglishMarkers = setOf(
-        "mera", "meri", "mere", "tumhara", "hamara", "apne", "aap",
-        "nahi", "nahin", "nhi", "naa", "mat",
+        "mera", "meri", "mere", "tumhara", "hamara", "apne", "aap", "aapka", "aapko",
+        "nahi", "nahin", "nhi", "naa", "mat", "bilkul",
         "bahut", "bohot", "zyada", "jyada", "thoda", "kam",
         "garam", "thanda", "jaldi", "khatam", "khtm", "kharab",
         "band", "chalu", "chal", "chalta", "chalti", "chalte",
-        "hota", "hoti", "hote", "ho", "hai", "hain", "tha", "thi",
+        "hota", "hoti", "hote", "ho", "hai", "hain", "tha", "thi", "hu", "hoon",
         "raha", "rahi", "rahe", "rha", "rhi", "rhe", "gaya", "gayi", "gaye",
         "kaise", "kya", "kyu", "kyun", "kyon", "kab", "kahan", "kaun", "konsa",
         "dikkat", "samasya", "pareshani", "wajah", "bina", "batao", "bataiye",
-        "karo", "kariye", "karen", "kerna", "karna", "krna", "dekh", "dekho",
+        "karo", "kariye", "karen", "kerna", "karna", "krna", "dekh", "dekho", "kiya", "kia",
         "mein", "lekin", "magar", "par", "aur", "ya", "bhi", "sab", "kuch", "kuchh",
-        "aawaz", "awaaz", "awaz", "aati", "aata", "aate", "aa", "jaati", "jaata",
+        "aawaz", "awaaz", "awaz", "aati", "aata", "aate", "aa", "jaati", "jaata", "aaya", "aayaa",
         "atak", "ruk", "rukh", "kaam", "khul", "khulta", "lagta", "dikh", "dikhta",
-        "janda", "hunda", "sahi", "theek", "thik", "abhi", "pehle", "baad"
+        "janda", "hunda", "sahi", "theek", "thik", "abhi", "pehle", "baad",
+        "bhai", "maine", "mujhe", "samajh", "samjhao", "samjha", "koi", "aasan", "asan",
+        "tareeka", "tarika", "shukriya", "dhanyawad", "dhanyavad", "namaste", "baat", "is", "baar", "ek"
     )
 
     fun detectResponseLanguage(userProblem: String, uiToggleLanguage: String): String {
@@ -47,13 +49,18 @@ object LanguageDetector {
             .filter { it.isNotBlank() }
 
         val markerHits = tokens.count { it in strongHinglishMarkers }
+        val lower = text.lowercase()
         val hasTwoWordHinglishPhrase = listOf(
             "ho raha", "ho rahi", "ho rha", "ho rhi", "ho gaya", "ho gayi",
             "nahi chal", "nhi chal", "nahi ho", "nhi ho", "aa rahi", "aa rha",
-            "apne aap", "bahut hang", "bahut garam", "jaldi drain", "jldi drain"
-        ).any { text.lowercase().contains(it) }
+            "apne aap", "bahut hang", "bahut garam", "jaldi drain", "jldi drain",
+            "fix nahi", "fix nhi", "nhi hua", "nahi hua", "samajh nahi", "samajh nhi",
+            "try kiya", "try kia", "abhi bhi", "koi aur", "aur easy",
+            "kaise ho", "kya kar", "theek hai", "thik hai", "koi baat"
+        ).any { lower.contains(it) }
 
-        if (hasTwoWordHinglishPhrase || markerHits >= 2) {
+        val singleWordHinglishGreetings = setOf("namaste", "shukriya", "dhanyawad", "dhanyavad")
+        if (hasTwoWordHinglishPhrase || markerHits >= 2 || (tokens.size == 1 && tokens.first() in singleWordHinglishGreetings)) {
             return LANG_HINGLISH
         }
 
