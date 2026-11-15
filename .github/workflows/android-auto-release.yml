@@ -53,17 +53,26 @@ jobs:
           echo "Computed Version: v${VERSION_NAME} (versionCode=${VERSION_CODE}) on ${RELEASE_DATE_UTC}"
 
       - name: Prepare CI Signing & Non-Secret Config
+        id: prep
         env:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
           RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
+          FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
+          FIREBASE_CREDENTIAL_FILE_CONTENT: ${{ secrets.FIREBASE_CREDENTIAL_FILE_CONTENT }}
         run: |
           # SECURITY: Never bake GEMINI_API_KEY into the APK.
           # Cloud AI uses Firebase AI Logic + App Check or server-side backend/ proxy.
           if [ -n "$GOOGLE_SERVICES_JSON" ]; then
             printf '%s\n' "$GOOGLE_SERVICES_JSON" > app/google-services.json
+          fi
+
+          if [ -n "$FIREBASE_APP_ID" ] && [ -n "$FIREBASE_CREDENTIAL_FILE_CONTENT" ]; then
+            echo "HAS_FIREBASE_DIST=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "HAS_FIREBASE_DIST=false" >> "$GITHUB_OUTPUT"
           fi
 
           if [ -n "$RELEASE_KEYSTORE_BASE64" ] && [ -n "$STORE_PASSWORD" ] && [ -n "$KEY_PASSWORD" ]; then
@@ -143,10 +152,6 @@ jobs:
           CUSTOM_HI: ${{ github.event.inputs.release_notes_hi }}
         run: |
           mkdir -p dist
-          TAG_NAME="v${VERSION_NAME}"
-          APK_URL="https://github.com/${{ github.repository }}/releases/download/${TAG_NAME}/Ai-Smartphone-Doctor.apk"
-          LATEST_APK_URL="https://github.com/${{ github.repository }}/releases/download/latest/Ai-Smartphone-Doctor.apk"
-
           PREV_TAG=$(git tag --list 'v*' --sort=-v:refname | head -n 1 || true)
           if [ -n "$PREV_TAG" ]; then
             COMMIT_LOG=$(git log "${PREV_TAG}..HEAD" --pretty=format:"- %s (%h)" -n 20)
@@ -156,46 +161,59 @@ jobs:
           if [ -z "$COMMIT_LOG" ]; then
             COMMIT_LOG="- Automatic build v${VERSION_NAME} from main branch"
           fi
-
-          cat > dist/CHANGELOG_RELEASE.md <<EOF
-## AI Smartphone Doctor ${TAG_NAME} (Build ${VERSION_CODE})
-
-- **Version:** \`${TAG_NAME}\` (versionCode \`${VERSION_CODE}\`)
-- **Release Date:** ${RELEASE_DATE_UTC}
-- **Direct APK Download Link:** [${TAG_NAME} APK Download](${APK_URL})
-- **Always-Latest Channel Link:** [Latest APK Download](${LATEST_APK_URL})
-- **Package ID (Preserves Data on Upgrade):** \`com.aistudio.smartphonedoctor.oapeir\`
-- **SHA-256 Checksum:** \`${APK_SHA256}\`
-
-### Changelog
-${COMMIT_LOG}
-
----
-Previous releases remain archived and downloadable from the Releases tab. Installing this update over an existing installation preserves repair logs, diagnostic history, and user session context.
-EOF
+          export COMMIT_LOG
 
           python3 - <<'PY'
           import json, os
-          with open("dist/CHANGELOG_RELEASE.md", "r", encoding="utf-8") as cf:
-              changelog_md = cf.read()
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          version_code = int(os.environ["VERSION_CODE"])
+          version_name = os.environ["VERSION_NAME"]
+          tag_name = f"v{version_name}"
+          apk_sha256 = os.environ["APK_SHA256"]
+          apk_size = int(os.environ["APK_SIZE"])
+          published_at = os.environ["PUBLISHED_AT"]
+          release_date_utc = os.environ.get("RELEASE_DATE_UTC", "")
+          commit_log = os.environ.get("COMMIT_LOG", "").strip()
           custom_en = os.environ.get("CUSTOM_EN", "").strip()
           custom_hi = os.environ.get("CUSTOM_HI", "").strip()
-          version_name = os.environ["VERSION_NAME"]
-          release_date_utc = os.environ.get("RELEASE_DATE_UTC", "")
-          commit_summary = custom_en if custom_en else changelog_md.split("### Changelog", 1)[-1].split("---", 1)[0].strip()
-          notes_en = f"Release v{version_name} ({release_date_utc})\n{commit_summary}"
-          notes_hi = custom_hi if custom_hi else f"रिलीज़ v{version_name} ({release_date_utc}): नवीनतम एआई निदान, प्राकृतिक आवाज़ और ऑटो-रिपेयर अपडेट।"
+
+          apk_url = f"https://github.com/{repo}/releases/download/{tag_name}/Ai-Smartphone-Doctor.apk"
+          latest_apk_url = f"https://github.com/{repo}/releases/download/latest/Ai-Smartphone-Doctor.apk"
+
+          changelog_lines = [
+              f"## AI Smartphone Doctor {tag_name} (Build {version_code})",
+              "",
+              f"- **Version:** `{tag_name}` (versionCode `{version_code}`)",
+              f"- **Release Date:** {release_date_utc}",
+              f"- **Direct APK Download Link:** [{tag_name} APK Download]({apk_url})",
+              f"- **Always-Latest Channel Link:** [Latest APK Download]({latest_apk_url})",
+              "- **Package ID (Preserves Data on Upgrade):** `com.aistudio.smartphonedoctor.oapeir`",
+              f"- **SHA-256 Checksum:** `{apk_sha256}`",
+              "",
+              "### Changelog",
+              commit_log,
+              "",
+              "---",
+              "Previous releases remain archived and downloadable from the Releases tab. Installing this update over an existing installation preserves repair logs, diagnostic history, and user session context.",
+          ]
+          with open("dist/CHANGELOG_RELEASE.md", "w", encoding="utf-8") as cf:
+              cf.write("\n".join(changelog_lines) + "\n")
+
+          commit_summary = custom_en if custom_en else commit_log
+          notes_en = f"Release {tag_name} ({release_date_utc})\n{commit_summary}"
+          notes_hi = custom_hi if custom_hi else f"रिलीज़ {tag_name} ({release_date_utc}): नवीनतम एआई निदान, प्राकृतिक आवाज़ और ऑटो-रिपेयर अपडेट।"
 
           manifest = {
-              "versionCode": int(os.environ["VERSION_CODE"]),
+              "versionCode": version_code,
               "versionName": version_name,
-              "apkUrl": f"https://github.com/${{ github.repository }}/releases/download/v{version_name}/Ai-Smartphone-Doctor.apk",
-              "sha256": os.environ["APK_SHA256"],
-              "fileSizeBytes": int(os.environ["APK_SIZE"]),
+              "apkUrl": apk_url,
+              "sha256": apk_sha256,
+              "fileSizeBytes": apk_size,
               "releaseNotes": notes_en,
               "releaseNotesHi": notes_hi,
-              "publishedAt": os.environ["PUBLISHED_AT"],
-              "mandatory": False
+              "publishedAt": published_at,
+              "mandatory": False,
           }
           with open("dist/update-manifest.json", "w", encoding="utf-8") as f:
               json.dump(manifest, f, ensure_ascii=False, indent=2)
@@ -226,7 +244,7 @@ EOF
             dist/update-manifest.json
 
       - name: Publish to Firebase App Distribution (Optional)
-        if: ${{ secrets.FIREBASE_APP_ID != '' && secrets.FIREBASE_CREDENTIAL_FILE_CONTENT != '' }}
+        if: steps.prep.outputs.HAS_FIREBASE_DIST == 'true'
         uses: wzieba/Firebase-Distribution-Github-Action@v1
         with:
           appId: ${{ secrets.FIREBASE_APP_ID }}
